@@ -1,5 +1,5 @@
 import {
-  Controller, Get, Post, Patch, Body, Param, Query, UseGuards,
+  Controller, Get, Post, Patch, Delete, Body, Param, Query, UseGuards,
 } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiBearerAuth, ApiQuery } from '@nestjs/swagger';
 import { BuildingsService } from './buildings.service';
@@ -38,6 +38,12 @@ export class BuildingsController {
     return this.service.updateBuilding(id, dto);
   }
 
+  @Delete('sectors/:id')
+  @Roles(Role.ADMIN, Role.SUPERADMIN)
+  deleteBuilding(@Param('id') id: string) {
+    return this.service.deleteBuilding(id);
+  }
+
   @Get('units')
   @Roles(Role.SUPERADMIN, Role.ADMIN, Role.ACCOUNTANT)
   @ApiOperation({ summary: 'Listar unidades' })
@@ -67,5 +73,11 @@ export class BuildingsController {
   @Roles(Role.ADMIN, Role.SUPERADMIN)
   updateUnit(@Param('id') id: string, @Body() dto: Partial<CreateUnitDto>) {
     return this.service.updateUnit(id, dto);
+  }
+
+  @Delete('units/:id')
+  @Roles(Role.ADMIN, Role.SUPERADMIN)
+  deleteUnit(@Param('id') id: string) {
+    return this.service.deleteUnit(id);
   }
 }

@@ -1,8 +1,10 @@
+import { Type } from 'class-transformer';
 import { IsDateString, IsNumber, IsPositive } from 'class-validator';
 import { ApiProperty } from '@nestjs/swagger';
 
 export class CreateExchangeRateDto {
   @ApiProperty({ description: '1 USD = X VES', example: 36.5 })
+  @Type(() => Number)
   @IsNumber()
   @IsPositive()
   rate: number;

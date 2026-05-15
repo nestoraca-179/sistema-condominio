@@ -5,35 +5,73 @@ import { DataTable } from '../../components/common/DataTable';
 import { StatCard } from '../../components/common/StatCard';
 import { formatVES } from '../../utils/currency';
 
+interface GlobalStatementRow {
+  id: string;
+  unit?: {
+    id: string;
+    unit_number: string;
+    owner?: {
+      full_name: string;
+    };
+  };
+  total_ves: number;
+  total_usd: number;
+  payments: Array<{ id: string }>;
+}
+
+interface GlobalStatementResponse {
+  year?: number;
+  month?: number;
+  by_unit?: GlobalStatementRow[];
+  grand_total_ves?: number;
+}
+
 export function GlobalStatementPage() {
   const { user } = useAuth();
   const condominiumId = user?.condominium_id || '';
   const currentYear = new Date().getFullYear();
   const [year, setYear] = useState(currentYear);
   const [month, setMonth] = useState<number | ''>('');
-  const [data, setData] = useState<any[]>([]);
+  const [data, setData] = useState<GlobalStatementRow[]>([]);
+  const [grandTotalVes, setGrandTotalVes] = useState(0);
   const [loading, setLoading] = useState(false);
 
   const load = async () => {
     setLoading(true);
     try {
       const res = await reportsApi.getGlobalStatement(condominiumId, year, month || undefined);
-      setData(res.data || []);
+      const payload = (res.data || {}) as GlobalStatementResponse;
+      const rows = Array.isArray(payload.by_unit)
+        ? payload.by_unit.map((row, index) => ({
+            ...row,
+            id: row.unit?.id || `${row.unit?.unit_number || 'unit'}-${index}`,
+          }))
+        : [];
+
+      setData(rows);
+      setGrandTotalVes(Number(payload.grand_total_ves || 0));
     } catch { } finally { setLoading(false); }
   };
 
   useEffect(() => { load(); }, [condominiumId]);
 
-  const totalVes = data.reduce((acc, r) => acc + Number(r.total_ves || 0), 0);
-
   const columns = [
-    { key: 'unit_number', label: 'Unidad' },
-    { key: 'owner_name', label: 'Propietario' },
+    {
+      key: 'unit_number', label: 'Unidad',
+      render: (r: GlobalStatementRow) => r.unit?.unit_number || '—',
+    },
+    {
+      key: 'owner_name', label: 'Propietario',
+      render: (r: GlobalStatementRow) => r.unit?.owner?.full_name || 'Sin asignar',
+    },
     {
       key: 'total_ves', label: 'Total Bs.',
-      render: (r: any) => formatVES(r.total_ves),
+      render: (r: GlobalStatementRow) => formatVES(r.total_ves),
     },
-    { key: 'payment_count', label: 'N° Pagos' },
+    {
+      key: 'payment_count', label: 'N° Pagos',
+      render: (r: GlobalStatementRow) => r.payments?.length || 0,
+    },
   ];
 
   return (
@@ -62,7 +100,7 @@ export function GlobalStatementPage() {
 
       {data.length > 0 && (
         <div className="mb-6">
-          <StatCard label="Total General Recaudado (Bs.)" value={formatVES(totalVes)} colorClass="text-green-600" />
+          <StatCard label="Total General Recaudado (Bs.)" value={formatVES(grandTotalVes)} colorClass="text-green-600" />
         </div>
       )}
 

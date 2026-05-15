@@ -3,37 +3,109 @@ import toast from 'react-hot-toast';
 import { useForm } from 'react-hook-form';
 import { feesApi } from '../../api/fees.api';
 import { exchangeRatesApi } from '../../api/exchangeRates.api';
+import { buildingsApi } from '../../api/buildings.api';
 import { useAuth } from '../../contexts/AuthContext';
 import { DataTable } from '../../components/common/DataTable';
 import { Modal } from '../../components/common/Modal';
 import { ConfirmModal } from '../../components/common/ConfirmModal';
 import { formatVES, formatUSD } from '../../utils/currency';
-import type { Fee, ExchangeRate } from '../../types';
+import type { Building, Fee, FeeApplyScope, ExchangeRate, Unit } from '../../types';
+
+const TYPE_LABELS: Record<string, string> = {
+  sector: 'Sector',
+  building: 'Edificio',
+  tower: 'Torre',
+};
+
+const SCOPE_LABELS: Record<FeeApplyScope, string> = {
+  condominium: 'Todo el condominio',
+  building: 'Sector / Torre / Edificio',
+  unit: 'Unidad específica',
+};
+
+interface FeeFormValues {
+  name: string;
+  type: Fee['type'];
+  currency: Fee['currency'];
+  amount_original: string;
+  start_date: string;
+  due_date: string;
+  applies_to: FeeApplyScope;
+  target_building_id?: string;
+  target_unit_id?: string;
+}
+
+function getTodayDateString() {
+  const now = new Date();
+  const year = now.getFullYear();
+  const month = String(now.getMonth() + 1).padStart(2, '0');
+  const day = String(now.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+}
+
+function formatDate(value?: string | null) {
+  if (!value) return '—';
+  return new Date(`${value}T00:00:00`).toLocaleDateString('es-VE');
+}
+
+function formatDateTime(value: string) {
+  return new Date(value).toLocaleString('es-VE');
+}
+
+function getFeeScopeLabel(fee: Fee) {
+  if (fee.applies_to === 'building' && fee.targetBuilding) {
+    return `${TYPE_LABELS[fee.targetBuilding.type] ?? 'Estructura'}: ${fee.targetBuilding.name}`;
+  }
+
+  if (fee.applies_to === 'unit' && fee.targetUnit) {
+    return `Unidad: ${fee.targetUnit.unit_number}`;
+  }
+
+  return SCOPE_LABELS[fee.applies_to || 'condominium'];
+}
 
 export function FeesPage() {
   const { user } = useAuth();
   const condominiumId = user?.condominium_id || '';
   const [fees, setFees] = useState<Fee[]>([]);
+  const [buildings, setBuildings] = useState<Building[]>([]);
+  const [units, setUnits] = useState<Unit[]>([]);
   const [exchangeRate, setExchangeRate] = useState<ExchangeRate | null>(null);
   const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
   const [showModal, setShowModal] = useState(false);
+  const [editingFee, setEditingFee] = useState<Fee | null>(null);
   const [deactivateTarget, setDeactivateTarget] = useState<Fee | null>(null);
 
-  const { register, handleSubmit, reset, watch } = useForm<any>({
-    defaultValues: { currency: 'VES', type: 'ordinary' },
+  const today = getTodayDateString();
+  const { register, handleSubmit, reset, watch, setValue } = useForm<FeeFormValues>({
+    defaultValues: {
+      currency: 'VES',
+      type: 'ordinary',
+      applies_to: 'condominium',
+      start_date: today,
+      target_building_id: '',
+      target_unit_id: '',
+    },
   });
 
   const currency = watch('currency');
   const amountOriginal = watch('amount_original');
+  const startDate = watch('start_date');
+  const appliesTo = watch('applies_to');
 
   const load = async () => {
     setLoading(true);
     try {
-      const [f, er] = await Promise.all([
+      const [f, er, b, u] = await Promise.all([
         feesApi.getAll(condominiumId),
         exchangeRatesApi.getLatest().catch(() => null),
+        buildingsApi.getSectors(condominiumId),
+        buildingsApi.getUnits(condominiumId),
       ]);
       setFees(f.data);
+      setBuildings(b.data);
+      setUnits(u.data);
       if (er) setExchangeRate(er.data);
     } finally { setLoading(false); }
   };
@@ -42,25 +114,77 @@ export function FeesPage() {
 
   const previewVes = () => {
     if (!amountOriginal) return '—';
-    const rate = exchangeRate?.rate || 1;
+    const rate = Number(exchangeRate?.rate || 1);
     const amount = parseFloat(amountOriginal);
     return currency === 'USD'
       ? formatVES(amount * rate)
       : formatVES(amount);
   };
 
-  const onSubmit = async (data: any) => {
+  const handleScopeChange = (scope: FeeApplyScope) => {
+    setValue('applies_to', scope);
+    setValue('target_building_id', '');
+    setValue('target_unit_id', '');
+  };
+
+  const openCreate = () => {
+    setEditingFee(null);
+    reset({
+      currency: 'VES',
+      type: 'ordinary',
+      applies_to: 'condominium',
+      start_date: today,
+      due_date: '',
+      amount_original: '',
+      name: '',
+      target_building_id: '',
+      target_unit_id: '',
+    });
+    setShowModal(true);
+  };
+
+  const openEdit = (fee: Fee) => {
+    setEditingFee(fee);
+    reset({
+      name: fee.name,
+      type: fee.type,
+      currency: fee.currency,
+      amount_original: String(fee.amount_original),
+      start_date: fee.start_date ?? today,
+      due_date: fee.due_date,
+      applies_to: fee.applies_to ?? 'condominium',
+      target_building_id: fee.target_building_id ?? '',
+      target_unit_id: fee.target_unit_id ?? '',
+    });
+    setShowModal(true);
+  };
+
+  const onSubmit = async (data: FeeFormValues) => {
+    setSaving(true);
     try {
-      await feesApi.create({
+      const normalizedExchangeRate = Number(exchangeRate?.rate || 1);
+      const payload = {
         ...data,
         condominium_id: condominiumId,
         amount_original: parseFloat(data.amount_original),
-        exchange_rate: exchangeRate?.rate || 1,
-      });
-      toast.success('Cuota creada');
+        exchange_rate: normalizedExchangeRate,
+        target_building_id: data.applies_to === 'building' ? data.target_building_id || undefined : undefined,
+        target_unit_id: data.applies_to === 'unit' ? data.target_unit_id || undefined : undefined,
+      };
+
+      if (editingFee) {
+        await feesApi.update(editingFee.id, payload);
+        toast.success('Cuota actualizada');
+      } else {
+        await feesApi.create(payload);
+        toast.success('Cuota creada');
+      }
+
+      setEditingFee(null);
       setShowModal(false);
       load();
     } catch (err: any) { toast.error(err.response?.data?.message || 'Error'); }
+    finally { setSaving(false); }
   };
 
   const handleDeactivate = async () => {
@@ -87,16 +211,36 @@ export function FeesPage() {
       key: 'amount_ves', label: 'En Bs.',
       render: (f: Fee) => formatVES(f.amount_ves),
     },
-    { key: 'due_date', label: 'Vencimiento' },
+    {
+      key: 'scope', label: 'Aplica a', sortable: false,
+      render: (f: Fee) => getFeeScopeLabel(f),
+    },
+    {
+      key: 'start_date', label: 'Inicio',
+      render: (f: Fee) => formatDate(f.start_date),
+    },
+    {
+      key: 'due_date', label: 'Vencimiento',
+      render: (f: Fee) => formatDate(f.due_date),
+    },
+    {
+      key: 'created_at', label: 'Registrada',
+      render: (f: Fee) => formatDateTime(f.created_at),
+    },
     {
       key: 'is_active', label: 'Estado',
       render: (f: Fee) => <span className={f.is_active ? 'badge-green' : 'badge-red'}>{f.is_active ? 'Activa' : 'Inactiva'}</span>,
     },
     {
       key: 'actions', label: 'Acciones', sortable: false,
-      render: (f: Fee) => f.is_active ? (
-        <button onClick={() => setDeactivateTarget(f)} className="btn-danger text-xs py-1">Desactivar</button>
-      ) : null,
+      render: (f: Fee) => (
+        <div className="flex gap-2">
+          <button onClick={() => openEdit(f)} className="btn-secondary text-xs py-1">Editar</button>
+          {f.is_active && (
+            <button onClick={() => setDeactivateTarget(f)} className="btn-danger text-xs py-1">Desactivar</button>
+          )}
+        </div>
+      ),
     },
   ];
 
@@ -111,7 +255,7 @@ export function FeesPage() {
             </p>
           )}
         </div>
-        <button onClick={() => { reset({ currency: 'VES', type: 'ordinary' }); setShowModal(true); }} className="btn-primary">
+        <button onClick={openCreate} className="btn-primary">
           + Nueva Cuota
         </button>
       </div>
@@ -119,12 +263,13 @@ export function FeesPage() {
         <DataTable data={fees} columns={columns} loading={loading} />
       </div>
 
-      <Modal isOpen={showModal} title="Nueva Cuota" onClose={() => setShowModal(false)}>
+      <Modal isOpen={showModal} title={editingFee ? 'Editar Cuota' : 'Nueva Cuota'} onClose={() => setShowModal(false)}>
         <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
           <div>
-            <label className="label">Concepto</label>
+            <label className="label">Concepto <span className="text-red-500">*</span></label>
             <input {...register('name')} className="input" required placeholder="Mantenimiento Junio 2026" />
           </div>
+          <input type="hidden" {...register('applies_to')} />
           <div className="grid grid-cols-2 gap-4">
             <div>
               <label className="label">Tipo</label>
@@ -141,9 +286,58 @@ export function FeesPage() {
               </select>
             </div>
           </div>
+          <div>
+            <label className="label">Aplicación de la cuota <span className="text-red-500">*</span></label>
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+              {(['condominium', 'building', 'unit'] as FeeApplyScope[]).map(scope => (
+                <button
+                  key={scope}
+                  type="button"
+                  onClick={() => handleScopeChange(scope)}
+                  className={`rounded-lg border px-4 py-3 text-left transition ${appliesTo === scope ? 'border-primary-600 bg-primary-50 text-primary-800' : 'border-gray-200 hover:border-gray-300 text-gray-700'}`}
+                >
+                  <span className="block font-medium">{SCOPE_LABELS[scope]}</span>
+                  <span className="block text-xs mt-1 text-gray-500">
+                    {scope === 'condominium'
+                      ? 'Aplica a todas las unidades del condominio.'
+                      : scope === 'building'
+                        ? 'Aplica a un sector, torre o edificio completo.'
+                        : 'Aplica a una sola unidad habitacional.'}
+                  </span>
+                </button>
+              ))}
+            </div>
+          </div>
+          {appliesTo === 'building' && (
+            <div>
+              <label className="label">Sector / Torre / Edificio <span className="text-red-500">*</span></label>
+              <select {...register('target_building_id')} className="input" required={appliesTo === 'building'}>
+                <option value="">Seleccionar estructura...</option>
+                {buildings.map(building => (
+                  <option key={building.id} value={building.id}>
+                    {(TYPE_LABELS[building.type] || 'Estructura')} - {building.name}
+                  </option>
+                ))}
+              </select>
+            </div>
+          )}
+          {appliesTo === 'unit' && (
+            <div>
+              <label className="label">Unidad habitacional <span className="text-red-500">*</span></label>
+              <select {...register('target_unit_id')} className="input" required={appliesTo === 'unit'}>
+                <option value="">Seleccionar unidad...</option>
+                {units.map(unit => (
+                  <option key={unit.id} value={unit.id}>
+                    {unit.unit_number} - {unit.building?.name || 'Sin estructura'}
+                    {unit.owner?.full_name ? ` - ${unit.owner.full_name}` : ''}
+                  </option>
+                ))}
+              </select>
+            </div>
+          )}
           <div className="grid grid-cols-2 gap-4">
             <div>
-              <label className="label">Monto ({currency})</label>
+              <label className="label">Monto ({currency}) <span className="text-red-500">*</span></label>
               <input {...register('amount_original')} type="number" step="0.01" className="input" required />
             </div>
             <div>
@@ -152,12 +346,22 @@ export function FeesPage() {
             </div>
           </div>
           <div>
-            <label className="label">Fecha de Vencimiento</label>
-            <input {...register('due_date')} type="date" className="input" required />
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <label className="label">Fecha de Inicio <span className="text-red-500">*</span></label>
+                <input {...register('start_date')} type="date" className="input" required max={watch('due_date') || undefined} />
+              </div>
+              <div>
+                <label className="label">Fecha de Vencimiento <span className="text-red-500">*</span></label>
+                <input {...register('due_date')} type="date" className="input" required min={startDate || undefined} />
+              </div>
+            </div>
           </div>
+          <p className="text-xs text-gray-400"><span className="text-red-500">*</span> Requerido</p>
+          {saving && <p className="text-sm text-primary-700">Procesando información, por favor espere...</p>}
           <div className="flex justify-end gap-3">
-            <button type="button" onClick={() => setShowModal(false)} className="btn-secondary">Cancelar</button>
-            <button type="submit" className="btn-primary">Crear Cuota</button>
+            <button type="button" onClick={() => setShowModal(false)} className="btn-secondary disabled:opacity-70 disabled:cursor-not-allowed" disabled={saving}>Cancelar</button>
+            <button type="submit" className="btn-primary disabled:opacity-70 disabled:cursor-not-allowed" disabled={saving}>{saving ? 'Guardando...' : editingFee ? 'Actualizar' : 'Crear Cuota'}</button>
           </div>
         </form>
       </Modal>

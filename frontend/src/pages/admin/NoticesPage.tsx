@@ -11,6 +11,7 @@ export function NoticesPage() {
   const condominiumId = user?.condominium_id || '';
   const [notices, setNotices] = useState<Notice[]>([]);
   const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
   const [showModal, setShowModal] = useState(false);
   const [selected, setSelected] = useState<Notice | null>(null);
 
@@ -29,12 +30,14 @@ export function NoticesPage() {
   useEffect(() => { load(); }, [condominiumId]);
 
   const onSubmit = async (data: any) => {
+    setSaving(true);
     try {
       await noticesApi.create({ ...data, condominium_id: condominiumId });
       toast.success('Comunicado publicado');
       setShowModal(false);
       load();
     } catch (err: any) { toast.error(err.response?.data?.message || 'Error'); }
+    finally { setSaving(false); }
   };
 
   return (
@@ -70,11 +73,11 @@ export function NoticesPage() {
       <Modal isOpen={showModal} title="Nuevo Comunicado" onClose={() => setShowModal(false)} size="lg">
         <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
           <div>
-            <label className="label">Título</label>
+            <label className="label">Título <span className="text-red-500">*</span></label>
             <input {...register('title')} className="input" required />
           </div>
           <div>
-            <label className="label">Contenido</label>
+            <label className="label">Contenido <span className="text-red-500">*</span></label>
             <textarea {...register('content')} className="input" rows={5} required />
           </div>
           <div>
@@ -89,9 +92,11 @@ export function NoticesPage() {
             <input {...register('send_by_email')} type="checkbox" className="w-4 h-4" />
             <span className="text-sm text-gray-700">Enviar también por correo electrónico (CU-18)</span>
           </label>
+          <p className="text-xs text-gray-400"><span className="text-red-500">*</span> Requerido</p>
+          {saving && <p className="text-sm text-primary-700">Procesando información, por favor espere...</p>}
           <div className="flex justify-end gap-3">
-            <button type="button" onClick={() => setShowModal(false)} className="btn-secondary">Cancelar</button>
-            <button type="submit" className="btn-primary">Publicar</button>
+            <button type="button" onClick={() => setShowModal(false)} className="btn-secondary disabled:opacity-70 disabled:cursor-not-allowed" disabled={saving}>Cancelar</button>
+            <button type="submit" className="btn-primary disabled:opacity-70 disabled:cursor-not-allowed" disabled={saving}>{saving ? 'Guardando...' : 'Publicar'}</button>
           </div>
         </form>
       </Modal>

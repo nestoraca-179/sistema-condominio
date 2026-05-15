@@ -13,6 +13,7 @@ interface DataTableProps<T> {
   loading?: boolean;
   emptyMessage?: string;
   pageSize?: number;
+  rowClassName?: (row: T) => string;
 }
 
 export function DataTable<T extends { id?: string }>({
@@ -21,6 +22,7 @@ export function DataTable<T extends { id?: string }>({
   loading = false,
   emptyMessage = 'No hay datos disponibles',
   pageSize = 10,
+  rowClassName,
 }: DataTableProps<T>) {
   const [page, setPage] = useState(1);
   const [sortKey, setSortKey] = useState<string | null>(null);
@@ -106,7 +108,7 @@ export function DataTable<T extends { id?: string }>({
               </tr>
             ) : (
               paged.map((row, i) => (
-                <tr key={(row as Record<string, unknown>).id as string ?? i} className="hover:bg-gray-50">
+                <tr key={(row as Record<string, unknown>).id as string ?? i} className={`hover:bg-gray-50 ${rowClassName ? rowClassName(row) : ''}`}>
                   {columns.map(col => (
                     <td key={String(col.key)} className="px-4 py-3 text-gray-700">
                       {col.render

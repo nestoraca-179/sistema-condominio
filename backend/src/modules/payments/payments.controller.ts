@@ -1,4 +1,4 @@
-import { Controller, Get, Post, Body, Param, Query, UseGuards } from '@nestjs/common';
+import { Controller, Get, Post, Patch, Body, Param, Query, UseGuards } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiBearerAuth, ApiQuery } from '@nestjs/swagger';
 import { PaymentsService } from './payments.service';
 import { CreatePaymentDto } from './dto/create-payment.dto';
@@ -28,6 +28,13 @@ export class PaymentsController {
   @ApiOperation({ summary: 'Registrar pago (CU-08)' })
   create(@Body() dto: CreatePaymentDto, @CurrentUser() user: any) {
     return this.service.create(dto, user.id);
+  }
+
+  @Patch(':id/void')
+  @Roles(Role.ADMIN, Role.ACCOUNTANT, Role.SUPERADMIN)
+  @ApiOperation({ summary: 'Anular pago' })
+  voidPayment(@Param('id') id: string, @CurrentUser() user: any) {
+    return this.service.voidPayment(id, user.id);
   }
 
   @Get('resident/:unitId')

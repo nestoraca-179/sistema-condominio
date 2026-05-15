@@ -8,6 +8,8 @@ interface ConfirmModalProps {
   onConfirm: () => void;
   onCancel: () => void;
   isDestructive?: boolean;
+  isLoading?: boolean;
+  loadingMessage?: string;
 }
 
 export function ConfirmModal({
@@ -18,6 +20,8 @@ export function ConfirmModal({
   onConfirm,
   onCancel,
   isDestructive = false,
+  isLoading = false,
+  loadingMessage,
 }: ConfirmModalProps) {
   if (!isOpen) return null;
 
@@ -27,15 +31,19 @@ export function ConfirmModal({
       <div className="relative bg-white rounded-xl shadow-xl p-6 max-w-md w-full mx-4">
         <h3 className="text-lg font-semibold text-gray-900 mb-2">{title}</h3>
         <p className="text-gray-600 text-sm mb-6">{message}</p>
+        {isLoading && loadingMessage ? (
+          <p className="text-sm text-primary-700 mb-4">{loadingMessage}</p>
+        ) : null}
         <div className="flex justify-end gap-3">
-          <button onClick={onCancel} className="btn-secondary">
+          <button onClick={onCancel} className="btn-secondary" disabled={isLoading}>
             Cancelar
           </button>
           <button
             onClick={onConfirm}
-            className={isDestructive ? 'btn-danger' : 'btn-primary'}
+            className={`${isDestructive ? 'btn-danger' : 'btn-primary'} disabled:opacity-70 disabled:cursor-not-allowed`}
+            disabled={isLoading}
           >
-            {confirmLabel}
+            {isLoading ? 'Procesando...' : confirmLabel}
           </button>
         </div>
       </div>

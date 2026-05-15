@@ -44,6 +44,7 @@ export function UsersManagementPage({
   const [users, setUsers] = useState<User[]>([]);
   const [condominiums, setCondominiums] = useState<Condominium[]>([]);
   const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
   const [showModal, setShowModal] = useState(false);
   const [editing, setEditing] = useState<User | null>(null);
 
@@ -104,6 +105,7 @@ export function UsersManagementPage({
   };
 
   const onSubmit = async (data: FormData) => {
+    setSaving(true);
     try {
       const payload: Partial<User> & { password?: string } = {
         ...data,
@@ -125,6 +127,8 @@ export function UsersManagementPage({
       await load();
     } catch (err: any) {
       toast.error(err.response?.data?.message || 'Error al guardar');
+    } finally {
+      setSaving(false);
     }
   };
 
@@ -207,7 +211,7 @@ export function UsersManagementPage({
         <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
           <div className="grid grid-cols-2 gap-4">
             <div className="col-span-2">
-              <label className="label">Nombre completo</label>
+              <label className="label">Nombre completo <span className="text-red-500">*</span></label>
               <input {...register('full_name')} className="input" />
             </div>
             <div>
@@ -216,7 +220,7 @@ export function UsersManagementPage({
               {errors.username && <p className="text-red-500 text-xs mt-1">Username inválido</p>}
             </div>
             <div>
-              <label className="label">Email</label>
+              <label className="label">Email <span className="text-red-500">*</span></label>
               <input {...register('email')} type="email" className="input" />
             </div>
             <div>
@@ -224,11 +228,11 @@ export function UsersManagementPage({
               <input {...register('phone')} className="input" />
             </div>
             <div>
-              <label className="label">Contraseña {editing && '(dejar vacio para no cambiar)'}</label>
+              <label className="label">Contraseña {editing ? '(dejar vacío para no cambiar)' : <span className="text-red-500">*</span>}</label>
               <input {...register('password')} type="password" className="input" />
             </div>
             <div>
-              <label className="label">Rol</label>
+              <label className="label">Rol <span className="text-red-500">*</span></label>
               <select {...register('role')} className="input">
                 {roleOptions.map((role) => (
                   <option key={role.value} value={role.value}>{role.label}</option>
@@ -247,9 +251,11 @@ export function UsersManagementPage({
               </div>
             )}
           </div>
+          <p className="text-xs text-gray-400"><span className="text-red-500">*</span> Requerido</p>
+          {saving && <p className="text-sm text-primary-700">Procesando información, por favor espere...</p>}
           <div className="flex justify-end gap-3">
-            <button type="button" onClick={() => setShowModal(false)} className="btn-secondary">Cancelar</button>
-            <button type="submit" className="btn-primary">Guardar</button>
+            <button type="button" onClick={() => setShowModal(false)} className="btn-secondary disabled:opacity-70 disabled:cursor-not-allowed" disabled={saving}>Cancelar</button>
+            <button type="submit" className="btn-primary disabled:opacity-70 disabled:cursor-not-allowed" disabled={saving}>{saving ? 'Guardando...' : 'Guardar'}</button>
           </div>
         </form>
       </Modal>

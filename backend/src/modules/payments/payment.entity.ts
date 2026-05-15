@@ -1,5 +1,5 @@
 import {
-  Entity, PrimaryGeneratedColumn, Column, ManyToOne, JoinColumn, CreateDateColumn,
+  Entity, PrimaryGeneratedColumn, Column, ManyToOne, JoinColumn, CreateDateColumn, UpdateDateColumn,
 } from 'typeorm';
 import { Currency } from '../fees/fee.entity';
 
@@ -52,4 +52,17 @@ export class Payment {
 
   @CreateDateColumn()
   created_at: Date;
+
+  @Column({ default: false })
+  is_voided: boolean;
+
+  @Column({ type: 'timestamptz', nullable: true })
+  voided_at: Date | null;
+
+  @Column({ nullable: true })
+  voided_by: string | null;
+
+  @ManyToOne('User', { nullable: true, onDelete: 'SET NULL' })
+  @JoinColumn({ name: 'voided_by' })
+  voidedByUser: any;
 }

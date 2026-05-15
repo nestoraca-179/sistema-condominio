@@ -50,28 +50,28 @@ async function ensureDefaultAdmin(app: Awaited<ReturnType<typeof NestFactory.cre
     await usersRepo.save(user);
   }
 
-  const existingAdmin = await usersRepo.findOne({ where: { username: 'admin' } });
+  const existingSuperAdmin = await usersRepo.findOne({ where: { username: 'root' } });
 
-  if (existingAdmin) {
-    if (!existingAdmin.username) {
-      existingAdmin.username = 'admin';
-      await usersRepo.save(existingAdmin);
+  if (existingSuperAdmin) {
+    if (!existingSuperAdmin.username) {
+      existingSuperAdmin.username = 'root';
+      await usersRepo.save(existingSuperAdmin);
     }
     return;
   }
 
   const passwordHash = await bcrypt.hash('Admin123!', 12);
   const user = usersRepo.create({
-    username: 'admin',
-    email: 'admin@sistema-condominio.local',
+    username: 'root',
+    email: 'root@sistema-condominio.local',
     password_hash: passwordHash,
-    full_name: 'Administrador Inicial',
-    role: Role.ADMIN,
+    full_name: 'Super Administrador Inicial',
+    role: Role.SUPERADMIN,
     is_active: true,
   });
 
   await usersRepo.save(user);
-  console.log('Usuario administrador inicial creado: admin / Admin123!');
+  console.log('Usuario super administrador inicial creado: root / Admin123!');
 }
 
 async function bootstrap() {

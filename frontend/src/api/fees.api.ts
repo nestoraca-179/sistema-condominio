@@ -8,5 +8,7 @@ export const feesApi = {
   getOne: (id: string) => api.get<Fee>(`/fees/${id}`),
   create: (data: Partial<Fee> & { amount_original: number; exchange_rate: number }) =>
     api.post<Fee>('/fees', data),
+  update: (id: string, data: Partial<Fee> & { amount_original?: number; exchange_rate?: number }) =>
+    api.patch<Fee>(`/fees/${id}`, data),
   deactivate: (id: string) => api.delete(`/fees/${id}`),
 };

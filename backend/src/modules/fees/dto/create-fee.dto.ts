@@ -1,6 +1,18 @@
-import { IsDateString, IsEnum, IsNotEmpty, IsNumber, IsPositive, IsString, IsUUID, Length, Min } from 'class-validator';
-import { ApiProperty } from '@nestjs/swagger';
-import { FeeType, Currency } from '../fee.entity';
+import { Type } from 'class-transformer';
+import {
+  IsDateString,
+  IsEnum,
+  IsNotEmpty,
+  IsNumber,
+  IsOptional,
+  IsPositive,
+  IsString,
+  IsUUID,
+  Length,
+  Min,
+} from 'class-validator';
+import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
+import { FeeType, Currency, FeeApplyScope } from '../fee.entity';
 
 export class CreateFeeDto {
   @ApiProperty()
@@ -22,16 +34,36 @@ export class CreateFeeDto {
   currency: Currency;
 
   @ApiProperty({ description: 'Monto en moneda original', example: 50 })
+  @Type(() => Number)
   @IsNumber()
   @IsPositive()
   amount_original: number;
 
   @ApiProperty({ description: 'Tasa de cambio VES/USD al momento', example: 36.50 })
+  @Type(() => Number)
   @IsNumber()
   @Min(0)
   exchange_rate: number;
 
+  @ApiProperty({ example: '2026-06-01' })
+  @IsDateString()
+  start_date: string;
+
   @ApiProperty({ example: '2026-06-30' })
   @IsDateString()
   due_date: string;
+
+  @ApiProperty({ enum: FeeApplyScope, default: FeeApplyScope.CONDOMINIUM })
+  @IsEnum(FeeApplyScope)
+  applies_to: FeeApplyScope;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsUUID()
+  target_building_id?: string;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsUUID()
+  target_unit_id?: string;
 }

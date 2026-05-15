@@ -14,7 +14,7 @@ export function SuperadminDashboard() {
 
   return (
     <div>
-      <h1 className="text-2xl font-bold text-gray-900 mb-6">Panel Superadministrador</h1>
+      <h1 className="text-2xl font-bold text-gray-900 mb-6">Panel Super Administrador</h1>
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
         <StatCard label="Total Condominios" value={condoCount} />
         <StatCard label="Usuarios Registrados" value={userCount} colorClass="text-green-600" />

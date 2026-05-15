@@ -1,4 +1,4 @@
-import { Controller, Get, Post, Body, UseGuards } from '@nestjs/common';
+import { Controller, Get, Post, Body, Param, UseGuards } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiBearerAuth } from '@nestjs/swagger';
 import { ExchangeRatesService } from './exchange-rates.service';
 import { CreateExchangeRateDto } from './dto/create-exchange-rate.dto';
@@ -19,6 +19,12 @@ export class ExchangeRatesController {
   @ApiOperation({ summary: 'Obtener tasa de cambio actual (CU-13)' })
   getLatest() {
     return this.service.getLatest();
+  }
+
+  @Get('by-date/:date')
+  @ApiOperation({ summary: 'Obtener tasa por fecha específica (YYYY-MM-DD)' })
+  getByDate(@Param('date') date: string) {
+    return this.service.getByDate(date);
   }
 
   @Get('history')

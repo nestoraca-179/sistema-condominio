@@ -1,4 +1,4 @@
-import { Controller, Get, Post, Delete, Body, Param, Query, UseGuards } from '@nestjs/common';
+import { Controller, Get, Post, Patch, Delete, Body, Param, Query, UseGuards } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiBearerAuth, ApiQuery } from '@nestjs/swagger';
 import { FeesService } from './fees.service';
 import { CreateFeeDto } from './dto/create-fee.dto';
@@ -43,6 +43,13 @@ export class FeesController {
   @ApiOperation({ summary: 'Crear cuota (CU-07)' })
   create(@Body() dto: CreateFeeDto) {
     return this.service.create(dto);
+  }
+
+  @Patch(':id')
+  @Roles(Role.ADMIN, Role.SUPERADMIN)
+  @ApiOperation({ summary: 'Editar cuota (CU-07)' })
+  update(@Param('id') id: string, @Body() dto: Partial<CreateFeeDto>) {
+    return this.service.update(id, dto);
   }
 
   @Delete(':id')

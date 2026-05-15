@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { Payment } from './payment.entity';
@@ -29,6 +29,16 @@ export class PaymentsService {
       relations: ['fee', 'unit'],
       order: { payment_date: 'DESC' },
     });
+  }
+
+  async voidPayment(id: string, userId: string) {
+    const payment = await this.repo.findOne({ where: { id } });
+    if (!payment) throw new NotFoundException('Pago no encontrado');
+    if (payment.is_voided) throw new BadRequestException('El pago ya fue anulado');
+    payment.is_voided = true;
+    payment.voided_at = new Date();
+    payment.voided_by = userId;
+    return this.repo.save(payment);
   }
 
   async findAll(condominiumId?: string) {

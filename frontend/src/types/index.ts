@@ -1,6 +1,7 @@
 export type Role = 'superadmin' | 'admin' | 'accountant' | 'resident';
 export type Currency = 'VES' | 'USD';
 export type FeeType = 'ordinary' | 'extraordinary';
+export type FeeApplyScope = 'condominium' | 'building' | 'unit';
 export type DebtStatus = 'pending' | 'partial' | 'paid' | 'waived';
 export type BuildingType = 'sector' | 'building' | 'tower';
 export type NoticeTargetType = 'all' | 'sector' | 'building' | 'unit';
@@ -36,7 +37,7 @@ export interface Building {
   condominium_id: string;
   name: string;
   type: BuildingType;
-  parent_id?: string;
+  parent_id?: string | null;
   parent?: Building;
   order_index: number;
 }
@@ -47,7 +48,7 @@ export interface Unit {
   building?: Building;
   unit_number: string;
   floor?: string;
-  owner_id?: string;
+  owner_id?: string | null;
   owner?: User;
   is_occupied: boolean;
   created_at: string;
@@ -62,7 +63,13 @@ export interface Fee {
   amount_ves: number;
   amount_original: number;
   exchange_rate: number;
+  start_date?: string | null;
   due_date: string;
+  applies_to?: FeeApplyScope;
+  target_building_id?: string | null;
+  target_unit_id?: string | null;
+  targetBuilding?: Building;
+  targetUnit?: Unit;
   is_active: boolean;
   created_at: string;
 }
@@ -83,6 +90,8 @@ export interface Payment {
   registeredByUser?: User;
   notes?: string;
   created_at: string;
+  is_voided: boolean;
+  voided_at?: string | null;
 }
 
 export interface Debt {

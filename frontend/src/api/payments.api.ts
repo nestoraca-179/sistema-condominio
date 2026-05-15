@@ -6,5 +6,6 @@ export const paymentsApi = {
     api.get<Payment[]>('/payments', { params: { condominiumId } }),
   create: (data: Partial<Payment> & { amount_original: number; exchange_rate: number }) =>
     api.post<Payment>('/payments', data),
+  voidPayment: (id: string) => api.patch<Payment>(`/payments/${id}/void`, {}),
   getByUnit: (unitId: string) => api.get<Payment[]>(`/payments/resident/${unitId}`),
 };

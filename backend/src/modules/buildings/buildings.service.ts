@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { Building } from './building.entity';
@@ -33,6 +33,27 @@ export class BuildingsService {
     return this.buildingRepo.save(b);
   }
 
+  async deleteBuilding(id: string) {
+    const building = await this.buildingRepo.findOne({ where: { id } });
+    if (!building) throw new NotFoundException('Sector/Edificio no encontrado');
+
+    const [childrenCount, unitsCount] = await Promise.all([
+      this.buildingRepo.count({ where: { parent_id: id } }),
+      this.unitRepo.count({ where: { building_id: id } }),
+    ]);
+
+    if (childrenCount > 0) {
+      throw new BadRequestException('No se puede eliminar porque este elemento es padre de otros');
+    }
+
+    if (unitsCount > 0) {
+      throw new BadRequestException('No se puede eliminar porque este elemento tiene unidades asociadas');
+    }
+
+    await this.buildingRepo.remove(building);
+    return { success: true };
+  }
+
   async getUnits(condominiumId?: string, buildingId?: string) {
     const qb = this.unitRepo.createQueryBuilder('unit')
       .leftJoinAndSelect('unit.building', 'building')
@@ -61,5 +82,12 @@ export class BuildingsService {
     if (!unit) throw new NotFoundException('Unidad no encontrada');
     Object.assign(unit, dto);
     return this.unitRepo.save(unit);
+  }
+
+  async deleteUnit(id: string) {
+    const unit = await this.unitRepo.findOne({ where: { id } });
+    if (!unit) throw new NotFoundException('Unidad no encontrada');
+    await this.unitRepo.remove(unit);
+    return { success: true };
   }
 }

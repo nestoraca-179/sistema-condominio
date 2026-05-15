@@ -130,13 +130,13 @@ const NAV_ITEMS: NavItem[] = [
   { label: 'Usuarios', path: '/superadmin/usuarios', roles: ['superadmin'], icon: UsersIcon },
   // Admin
   { label: 'Dashboard', path: '/admin', roles: ['admin'], icon: DashboardIcon },
-  { label: 'Usuarios', path: '/admin/usuarios', roles: ['admin'], icon: UsersIcon },
   { label: 'Estructura', path: '/admin/estructura', roles: ['admin'], icon: StructureIcon },
   { label: 'Cuotas', path: '/admin/cuotas', roles: ['admin'], icon: FeesIcon },
   { label: 'Pagos', path: '/admin/pagos', roles: ['admin'], icon: PaymentsIcon },
   { label: 'Deudas y Moras', path: '/admin/deudas', roles: ['admin'], icon: DebtIcon },
   { label: 'Comunicados', path: '/admin/comunicados', roles: ['admin'], icon: NoticesIcon },
   { label: 'Reportes', path: '/admin/reportes', roles: ['admin'], icon: ReportsIcon },
+  { label: 'Usuarios', path: '/admin/usuarios', roles: ['admin'], icon: UsersIcon },
   // Accountant
   { label: 'Dashboard', path: '/contador', roles: ['accountant'], icon: DashboardIcon },
   { label: 'Tipo de Cambio', path: '/contador/tipo-cambio', roles: ['accountant'], icon: ExchangeRateIcon },
@@ -159,7 +159,7 @@ export function Sidebar() {
         collapsed ? 'w-16' : 'w-64'
       } min-h-screen`}
     >
-      <div className="flex items-center justify-between p-4 border-b border-primary-700">
+      <div className="flex items-center justify-between p-4 border-b border-primary-700" style={{ height: '65px' }}>
         {!collapsed && (
           <span className="font-bold text-lg truncate">Condominios</span>
         )}
