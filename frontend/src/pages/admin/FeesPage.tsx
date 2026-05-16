@@ -74,6 +74,10 @@ function getPaymentAmountInFeeCurrency(payment: Payment, feeCurrency: Fee['curre
   return Number(payment.amount_ves);
 }
 
+function isApprovedPayment(payment: Payment) {
+  return payment.status === 'approved' && !payment.is_voided;
+}
+
 function isSameDate(value: string | undefined | null, expectedDate: string) {
   if (!value) return false;
   return value.slice(0, 10) === expectedDate;
@@ -109,6 +113,7 @@ export function FeesPage() {
   const [units, setUnits] = useState<Unit[]>([]);
   const [payments, setPayments] = useState<Payment[]>([]);
   const [exchangeRate, setExchangeRate] = useState<ExchangeRate | null>(null);
+  const [checkingExchangeRate, setCheckingExchangeRate] = useState(false);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [showModal, setShowModal] = useState(false);
@@ -135,11 +140,11 @@ export function FeesPage() {
   const appliesTo = watch('applies_to');
   const requiresTodayExchangeRate = currency === 'USD';
   const hasTodayExchangeRate = isSameDate(exchangeRate?.effective_date, today);
-  const canSubmitUsdFee = !requiresTodayExchangeRate || hasTodayExchangeRate;
+  const canSubmitUsdFee = !requiresTodayExchangeRate || (hasTodayExchangeRate && !checkingExchangeRate);
 
   const paymentsByFeeId = useMemo(() => {
     return payments.reduce<Record<string, Payment[]>>((accumulator, payment) => {
-      if (!payment.fee_id || payment.is_voided) return accumulator;
+      if (!payment.fee_id || !isApprovedPayment(payment)) return accumulator;
       accumulator[payment.fee_id] = accumulator[payment.fee_id] || [];
       accumulator[payment.fee_id].push(payment);
       return accumulator;
@@ -223,6 +228,22 @@ export function FeesPage() {
     isPaid: false,
   };
 
+  const refreshTodayExchangeRate = async () => {
+    const currentDate = getTodayDateString();
+    setCheckingExchangeRate(true);
+
+    try {
+      const response = await exchangeRatesApi.getByDate(currentDate);
+      setExchangeRate(response.data);
+      return response.data;
+    } catch {
+      setExchangeRate(null);
+      return null;
+    } finally {
+      setCheckingExchangeRate(false);
+    }
+  };
+
   const load = async () => {
     setLoading(true);
     try {
@@ -237,7 +258,7 @@ export function FeesPage() {
       setBuildings(b.data);
       setUnits(u.data);
       setPayments(p.data);
-      if (er) setExchangeRate(er.data);
+      setExchangeRate(er ? er.data : null);
     } finally { setLoading(false); }
   };
 
@@ -245,10 +266,10 @@ export function FeesPage() {
 
   const previewVes = () => {
     if (!amountOriginal) return '—';
-    const rate = Number(exchangeRate?.rate || 1);
+    const rate = Number(exchangeRate?.rate || 0);
     const amount = parseFloat(amountOriginal);
     return currency === 'USD'
-      ? formatVES(amount * rate)
+      ? rate > 0 ? formatVES(amount * rate) : '—'
       : formatVES(amount);
   };
 
@@ -259,12 +280,13 @@ export function FeesPage() {
   };
 
   const openCreate = () => {
+    const currentDate = getTodayDateString();
     setEditingFee(null);
     reset({
       currency: 'VES',
       type: 'ordinary',
       applies_to: 'condominium',
-      start_date: today,
+      start_date: currentDate,
       due_date: '',
       amount_original: '',
       name: '',
@@ -272,6 +294,7 @@ export function FeesPage() {
       target_unit_id: '',
     });
     setShowModal(true);
+    refreshTodayExchangeRate();
   };
 
   const openEdit = (fee: Fee) => {
@@ -293,6 +316,7 @@ export function FeesPage() {
       target_unit_id: fee.target_unit_id ?? '',
     });
     setShowModal(true);
+    refreshTodayExchangeRate();
   };
 
   const onSubmit = async (data: FeeFormValues) => {
@@ -301,14 +325,19 @@ export function FeesPage() {
       return;
     }
 
-    if (data.currency === 'USD' && !hasTodayExchangeRate) {
+    let currentExchangeRate = exchangeRate;
+    if (data.currency === 'USD') {
+      currentExchangeRate = await refreshTodayExchangeRate();
+    }
+
+    if (data.currency === 'USD' && !currentExchangeRate) {
       toast.error('Debe existir una tasa de cambio registrada para la fecha actual antes de crear una cuota en USD');
       return;
     }
 
     setSaving(true);
     try {
-      const normalizedExchangeRate = Number(exchangeRate?.rate || 1);
+      const normalizedExchangeRate = Number(currentExchangeRate?.rate || 1);
       const payload = {
         ...data,
         condominium_id: condominiumId,
@@ -332,6 +361,11 @@ export function FeesPage() {
     } catch (err: any) { toast.error(err.response?.data?.message || 'Error'); }
     finally { setSaving(false); }
   };
+
+  useEffect(() => {
+    if (!showModal || currency !== 'USD') return;
+    refreshTodayExchangeRate();
+  }, [showModal, currency]);
 
   const handleDeactivate = async () => {
     if (!deactivateTarget) return;
@@ -560,7 +594,12 @@ export function FeesPage() {
           <p className="text-xs text-gray-400"><span className="text-red-500">*</span> Requerido</p>
           {requiresTodayExchangeRate && !hasTodayExchangeRate && (
             <div className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
-              Para registrar una cuota en USD debe existir una tasa de cambio con fecha de hoy.
+              No hay una tasa de cambio registrada para la fecha actual. No puede registrar cuotas en USD hasta cargar la tasa del dia.
+            </div>
+          )}
+          {requiresTodayExchangeRate && checkingExchangeRate && (
+            <div className="rounded-lg border border-blue-200 bg-blue-50 px-4 py-3 text-sm text-blue-800">
+              Validando la tasa de cambio de la fecha actual...
             </div>
           )}
           {saving && <p className="text-sm text-primary-700">Procesando información, por favor espere...</p>}

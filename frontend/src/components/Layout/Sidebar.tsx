@@ -146,6 +146,7 @@ const NAV_ITEMS: NavItem[] = [
   { label: 'Estado de Cuenta Global', path: '/contador/estado-cuenta', roles: ['accountant'], icon: ReportsIcon },
   // Resident
   { label: 'Mi Estado de Cuenta', path: '/residente', roles: ['resident'], icon: DashboardIcon },
+  { label: 'Mis Pagos', path: '/residente/pagos', roles: ['resident'], icon: PaymentsIcon },
   { label: 'Comunicados', path: '/residente/comunicados', roles: ['resident'], icon: NoticesIcon },
   { label: 'Mi Perfil', path: '/residente/perfil', roles: ['resident'], icon: ProfileIcon },
 ];

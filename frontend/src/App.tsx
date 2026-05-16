@@ -29,6 +29,7 @@ import { GlobalStatementPage } from './pages/accountant/GlobalStatementPage';
 // Resident
 import { ResidentDashboard } from './pages/resident/DashboardPage';
 import { ResidentNoticesPage } from './pages/resident/NoticesPage';
+import { ResidentPaymentsPage } from './pages/resident/PaymentsPage';
 import { ResidentProfilePage } from './pages/resident/ProfilePage';
 
 function PrivateRoute({ children, roles }: { children: React.ReactNode; roles?: string[] }) {
@@ -81,6 +82,7 @@ function AppRoutes() {
 
       <Route element={<PrivateRoute roles={['resident']}><MainLayout /></PrivateRoute>}>
         <Route path="/residente" element={<ResidentDashboard />} />
+        <Route path="/residente/pagos" element={<ResidentPaymentsPage />} />
         <Route path="/residente/comunicados" element={<ResidentNoticesPage />} />
         <Route path="/residente/perfil" element={<ResidentProfilePage />} />
       </Route>

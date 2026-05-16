@@ -2,6 +2,7 @@ import { Controller, Get, Post, Patch, Body, Param, Query, UseGuards } from '@ne
 import { ApiTags, ApiOperation, ApiBearerAuth, ApiQuery } from '@nestjs/swagger';
 import { PaymentsService } from './payments.service';
 import { CreatePaymentDto } from './dto/create-payment.dto';
+import { RejectPaymentDto } from './dto/reject-payment.dto';
 import { VoidPaymentDto } from './dto/void-payment.dto';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { RolesGuard } from '../../common/guards/roles.guard';
@@ -25,10 +26,24 @@ export class PaymentsController {
   }
 
   @Post()
-  @Roles(Role.ADMIN, Role.ACCOUNTANT, Role.SUPERADMIN)
+  @Roles(Role.ADMIN, Role.ACCOUNTANT, Role.SUPERADMIN, Role.RESIDENT)
   @ApiOperation({ summary: 'Registrar pago (CU-08)' })
   create(@Body() dto: CreatePaymentDto, @CurrentUser() user: any) {
-    return this.service.create(dto, user.id);
+    return this.service.create(dto, user);
+  }
+
+  @Patch(':id/approve')
+  @Roles(Role.ADMIN, Role.ACCOUNTANT, Role.SUPERADMIN)
+  @ApiOperation({ summary: 'Aprobar pago pendiente' })
+  approvePayment(@Param('id') id: string, @CurrentUser() user: any) {
+    return this.service.approvePayment(id, user.id);
+  }
+
+  @Patch(':id/reject')
+  @Roles(Role.ADMIN, Role.ACCOUNTANT, Role.SUPERADMIN)
+  @ApiOperation({ summary: 'Rechazar pago pendiente' })
+  rejectPayment(@Param('id') id: string, @Body() dto: RejectPaymentDto, @CurrentUser() user: any) {
+    return this.service.rejectPayment(id, user.id, dto.reason);
   }
 
   @Patch(':id/void')
@@ -41,7 +56,7 @@ export class PaymentsController {
   @Get('resident/:unitId')
   @Roles(Role.ADMIN, Role.ACCOUNTANT, Role.RESIDENT, Role.SUPERADMIN)
   @ApiOperation({ summary: 'Historial de pagos por unidad' })
-  findByResident(@Param('unitId') unitId: string) {
-    return this.service.findByResident(unitId);
+  findByResident(@Param('unitId') unitId: string, @CurrentUser() user: any) {
+    return this.service.findByResident(unitId, user);
   }
 }

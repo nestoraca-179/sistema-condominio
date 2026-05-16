@@ -1,7 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, Between } from 'typeorm';
-import { Payment } from '../payments/payment.entity';
+import { Payment, PaymentStatus } from '../payments/payment.entity';
 import { Debt } from '../debts/debt.entity';
 import { Unit } from '../buildings/unit.entity';
 import { Fee } from '../fees/fee.entity';
@@ -37,6 +37,7 @@ export class ReportsService {
       .leftJoinAndSelect('unit.owner', 'owner')
       .leftJoinAndSelect('payment.fee', 'fee')
       .where('building.condominium_id = :condominiumId', { condominiumId })
+      .andWhere('payment.status = :approvedStatus', { approvedStatus: PaymentStatus.APPROVED })
       .andWhere('payment.payment_date BETWEEN :startDate AND :endDate', { startDate, endDate })
       .orderBy('payment.payment_date', 'ASC')
       .getMany();
@@ -76,7 +77,8 @@ export class ReportsService {
       .leftJoinAndSelect('unit.building', 'building')
       .leftJoinAndSelect('unit.owner', 'owner')
       .leftJoinAndSelect('payment.fee', 'fee')
-      .where('building.condominium_id = :condominiumId', { condominiumId });
+      .where('building.condominium_id = :condominiumId', { condominiumId })
+      .andWhere('payment.status = :approvedStatus', { approvedStatus: PaymentStatus.APPROVED });
 
     if (year) {
       qb.andWhere('EXTRACT(YEAR FROM payment.payment_date) = :year', { year });

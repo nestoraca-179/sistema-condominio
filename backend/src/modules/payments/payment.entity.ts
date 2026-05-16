@@ -3,6 +3,13 @@ import {
 } from 'typeorm';
 import { Currency } from '../fees/fee.entity';
 
+export enum PaymentStatus {
+  APPROVED = 'approved',
+  PENDING = 'pending',
+  REJECTED = 'rejected',
+  VOIDED = 'voided',
+}
+
 @Entity('payments')
 export class Payment {
   @PrimaryGeneratedColumn('uuid')
@@ -55,6 +62,32 @@ export class Payment {
 
   @CreateDateColumn()
   created_at: Date;
+
+  @Column({ type: 'enum', enum: PaymentStatus, default: PaymentStatus.APPROVED })
+  status: PaymentStatus;
+
+  @Column({ type: 'timestamptz', nullable: true })
+  approved_at: Date | null;
+
+  @Column({ nullable: true })
+  approved_by: string | null;
+
+  @ManyToOne('User', { nullable: true, onDelete: 'SET NULL' })
+  @JoinColumn({ name: 'approved_by' })
+  approvedByUser: any;
+
+  @Column({ type: 'timestamptz', nullable: true })
+  rejected_at: Date | null;
+
+  @Column({ nullable: true })
+  rejected_by: string | null;
+
+  @ManyToOne('User', { nullable: true, onDelete: 'SET NULL' })
+  @JoinColumn({ name: 'rejected_by' })
+  rejectedByUser: any;
+
+  @Column({ type: 'text', nullable: true })
+  rejection_reason: string | null;
 
   @Column({ default: false })
   is_voided: boolean;

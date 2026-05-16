@@ -1,9 +1,9 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import toast from 'react-hot-toast';
 import { useForm } from 'react-hook-form';
+import { dashboardApi } from '../../api/reports.api';
 import { paymentsApi } from '../../api/payments.api';
 import { buildingsApi } from '../../api/buildings.api';
-import { feesApi } from '../../api/fees.api';
 import { exchangeRatesApi } from '../../api/exchangeRates.api';
 import { useAuth } from '../../contexts/AuthContext';
 import { DataTable } from '../../components/common/DataTable';
@@ -18,37 +18,37 @@ import {
   PAYMENT_STATUS_LABELS,
   roundMoney,
 } from '../../utils/payments';
-import type { Payment, Unit, Fee, ExchangeRate, Building } from '../../types';
+import type { Debt, ExchangeRate, Fee, Payment, Unit } from '../../types';
 
-export function PaymentsPage() {
+function getOutstandingAmount(debt: Pick<Debt, 'original_amount_ves' | 'late_fee_ves' | 'paid_amount_ves'>) {
+  return Math.max(
+    Number(debt.original_amount_ves) + Number(debt.late_fee_ves) - Number(debt.paid_amount_ves),
+    0,
+  );
+}
+
+export function ResidentPaymentsPage() {
   const { user } = useAuth();
-  const condominiumId = user?.condominium_id || '';
-  const [payments, setPayments] = useState<Payment[]>([]);
-  const [buildings, setBuildings] = useState<Building[]>([]);
   const [units, setUnits] = useState<Unit[]>([]);
-  const [fees, setFees] = useState<Fee[]>([]);
+  const [payments, setPayments] = useState<Payment[]>([]);
+  const [pendingDebts, setPendingDebts] = useState<Debt[]>([]);
   const [latestRate, setLatestRate] = useState<ExchangeRate | null>(null);
   const [paymentDateRate, setPaymentDateRate] = useState<ExchangeRate | null>(null);
   const [rateWarning, setRateWarning] = useState<string | null>(null);
-  const [loading, setLoading] = useState(true);
+  const [selectedUnitId, setSelectedUnitId] = useState('');
+  const [loadingUnits, setLoadingUnits] = useState(true);
+  const [loadingPayments, setLoadingPayments] = useState(false);
   const [saving, setSaving] = useState(false);
   const [showModal, setShowModal] = useState(false);
   const [noteTarget, setNoteTarget] = useState<Payment | null>(null);
   const [infoTarget, setInfoTarget] = useState<Payment | null>(null);
-  const [voidTarget, setVoidTarget] = useState<Payment | null>(null);
-  const [rejectTarget, setRejectTarget] = useState<Payment | null>(null);
-  const [voidReason, setVoidReason] = useState('');
-  const [rejectReason, setRejectReason] = useState('');
-  const [approvingId, setApprovingId] = useState<string | null>(null);
-  const [rejecting, setRejecting] = useState(false);
-  const [voiding, setVoiding] = useState(false);
 
   const today = getTodayDateString();
 
   const { register, handleSubmit, reset, watch, setValue } = useForm<any>({
     defaultValues: { currency: 'VES', payment_date: today },
   });
-  const selectedUnitId = watch('unit_id');
+  const formUnitId = watch('unit_id');
   const selectedFeeId = watch('fee_id');
   const currency = watch('currency');
   const amount = watch('amount_original');
@@ -56,75 +56,44 @@ export function PaymentsPage() {
 
   const selectedUnit = useMemo(
     () => units.find(unit => unit.id === selectedUnitId),
-    [units, selectedUnitId],
+    [selectedUnitId, units],
+  );
+
+  const selectedFormUnit = useMemo(
+    () => units.find(unit => unit.id === formUnitId),
+    [formUnitId, units],
+  );
+
+  const availableFees = useMemo(
+    () => pendingDebts
+      .filter(debt => !!debt.fee && getOutstandingAmount(debt) > 0.01)
+      .map(debt => debt.fee as Fee),
+    [pendingDebts],
+  );
+
+  const selectedFeeDebt = useMemo(
+    () => pendingDebts.find(debt => debt.fee_id === selectedFeeId),
+    [pendingDebts, selectedFeeId],
   );
 
   const selectedFee = useMemo(
-    () => fees.find(fee => fee.id === selectedFeeId),
-    [fees, selectedFeeId],
+    () => selectedFeeDebt?.fee,
+    [selectedFeeDebt],
   );
 
   const requiresExchangeRate = currency === 'USD' || selectedFee?.currency === 'USD';
 
-  const getPaymentAmountInFeeCurrency = (payment: Payment, feeCurrency: Fee['currency']) => {
-    if (feeCurrency === 'USD') {
-      if (payment.amount_usd !== null && payment.amount_usd !== undefined) {
-        return Number(payment.amount_usd);
-      }
-
-      if (payment.currency === 'USD') {
-        return Number(payment.amount_original);
-      }
-
-      const exchangeRate = Number(payment.exchange_rate || 0);
-      return exchangeRate > 0 ? roundMoney(Number(payment.amount_ves) / exchangeRate) : 0;
-    }
-
-    return Number(payment.amount_ves);
-  };
-
-  const getPaidAmountForFee = (fee: Fee, unitId: string) => {
-    return payments
-      .filter(payment => isApprovedPayment(payment) && payment.unit_id === unitId && payment.fee_id === fee.id)
-      .reduce((sum, payment) => sum + getPaymentAmountInFeeCurrency(payment, fee.currency), 0);
-  };
-
-  const getRemainingAmountForFee = (fee: Fee, unitId: string) => {
-    const total = fee.currency === 'USD' ? Number(fee.amount_original) : Number(fee.amount_ves);
-    const paid = getPaidAmountForFee(fee, unitId);
-    return roundMoney(Math.max(total - paid, 0));
-  };
-
-  const applicableBuildingIds = useMemo(() => {
-    if (!selectedUnit) return new Set<string>();
-
-    const ids = new Set<string>();
-    let currentId: string | undefined = selectedUnit.building_id;
-
-    while (currentId) {
-      ids.add(currentId);
-      const currentBuilding = buildings.find(building => building.id === currentId);
-      currentId = currentBuilding?.parent_id ?? undefined;
-    }
-
-    return ids;
-  }, [buildings, selectedUnit]);
-
-  const availableFees = useMemo(() => {
-    if (!selectedUnit) return [];
-
-    return fees.filter(fee => {
-      if (!fee.applies_to || fee.applies_to === 'condominium') return true;
-      if (fee.applies_to === 'unit') return fee.target_unit_id === selectedUnit.id;
-      if (fee.applies_to === 'building') return !!fee.target_building_id && applicableBuildingIds.has(fee.target_building_id);
-      return false;
-    }).filter(fee => getRemainingAmountForFee(fee, selectedUnit.id) > 0.01);
-  }, [applicableBuildingIds, fees, selectedUnit, payments]);
-
   const selectedFeeRemaining = useMemo(() => {
-    if (!selectedUnit || !selectedFee) return null;
-    return getRemainingAmountForFee(selectedFee, selectedUnit.id);
-  }, [selectedFee, selectedUnit, payments]);
+    if (!selectedFeeDebt) return null;
+
+    if (selectedFeeDebt.fee?.currency === 'USD') {
+      const exchangeRate = Number(selectedFeeDebt.fee.exchange_rate || 0);
+      if (exchangeRate <= 0) return 0;
+      return roundMoney(getOutstandingAmount(selectedFeeDebt) / exchangeRate);
+    }
+
+    return roundMoney(getOutstandingAmount(selectedFeeDebt));
+  }, [selectedFeeDebt]);
 
   const remainingInSelectedCurrency = useMemo(() => {
     if (selectedFeeRemaining === null || selectedFeeRemaining === undefined || !selectedFee) return null;
@@ -159,7 +128,6 @@ export function PaymentsPage() {
     return roundMoney(numericAmount / Number(paymentDateRate.rate));
   }, [amount, currency, paymentDateRate]);
 
-  // Fetch rate for the selected payment date to support previews and required validations.
   useEffect(() => {
     if (!paymentDate) return;
 
@@ -175,7 +143,6 @@ export function PaymentsPage() {
           setRateWarning(`No hay tasa de cambio registrada para el ${formatted}. Registre la tasa antes de continuar.`);
           return;
         }
-
         setRateWarning(null);
       });
   }, [paymentDate, requiresExchangeRate]);
@@ -189,35 +156,79 @@ export function PaymentsPage() {
     return formatVES(parseFloat(amount));
   };
 
-  const load = async () => {
-    setLoading(true);
+  const loadBaseData = async () => {
+    if (!user) {
+      setLoadingUnits(false);
+      return;
+    }
+
+    setLoadingUnits(true);
     try {
-      const [p, b, u, f, er] = await Promise.all([
-        paymentsApi.getAll(condominiumId),
-        buildingsApi.getSectors(condominiumId),
-        buildingsApi.getUnits(condominiumId),
-        feesApi.getAll(condominiumId, true),
+      const [unitsResponse, latestRateResponse] = await Promise.all([
+        buildingsApi.getMyUnits(),
         exchangeRatesApi.getLatest().catch(() => null),
       ]);
-      setPayments(p.data);
-      setBuildings(b.data);
-      setUnits(u.data);
-      setFees(f.data);
-      if (er) setLatestRate(er.data);
-    } finally { setLoading(false); }
+
+      setUnits(unitsResponse.data);
+      setSelectedUnitId(current => current || unitsResponse.data[0]?.id || '');
+      if (latestRateResponse) setLatestRate(latestRateResponse.data);
+    } finally {
+      setLoadingUnits(false);
+    }
   };
 
-  useEffect(() => { load(); }, [condominiumId]);
+  const loadPendingDebts = async (unitId: string) => {
+    if (!unitId) {
+      setPendingDebts([]);
+      return;
+    }
+
+    try {
+      const response = await dashboardApi.getMyStatement(unitId);
+      const debts = (response.data?.debts || []).filter((debt: Debt) => getOutstandingAmount(debt) > 0.01);
+      setPendingDebts(debts);
+    } catch {
+      setPendingDebts([]);
+    }
+  };
+
+  const loadPayments = async (unitId: string) => {
+    if (!unitId) {
+      setPayments([]);
+      return;
+    }
+
+    setLoadingPayments(true);
+    try {
+      const response = await paymentsApi.getByUnit(unitId);
+      setPayments(response.data);
+    } finally {
+      setLoadingPayments(false);
+    }
+  };
+
+  useEffect(() => { loadBaseData(); }, [user]);
+
+  useEffect(() => {
+    loadPayments(selectedUnitId);
+  }, [selectedUnitId]);
+
+  useEffect(() => {
+    if (!showModal) return;
+    loadPendingDebts(formUnitId);
+  }, [formUnitId, showModal]);
 
   useEffect(() => {
     if (!selectedFeeId) return;
     const feeStillAvailable = availableFees.some(fee => fee.id === selectedFeeId);
-    if (!feeStillAvailable) {
-      setValue('fee_id', '');
-    }
+    if (!feeStillAvailable) setValue('fee_id', '');
   }, [availableFees, selectedFeeId, setValue]);
 
   const onSubmit = async (data: any) => {
+    if (!data.unit_id) {
+      toast.error('Debe seleccionar una unidad');
+      return;
+    }
     if (requiresExchangeRate && !paymentDateRate) {
       toast.error('No hay tasa de cambio para la fecha del pago');
       return;
@@ -226,86 +237,57 @@ export function PaymentsPage() {
       toast.error('El monto ingresado excede el saldo pendiente de la cuota seleccionada');
       return;
     }
+
     setSaving(true);
     try {
       const exchangeRateValue = requiresExchangeRate ? Number(paymentDateRate!.rate) : 0;
       const payload: any = {
         ...data,
+        unit_id: data.unit_id,
         amount_original: parseFloat(data.amount_original),
         exchange_rate: exchangeRateValue,
       };
       if (!payload.fee_id) delete payload.fee_id;
       await paymentsApi.create(payload);
-      toast.success('Pago registrado y aprobado exitosamente');
+      toast.success('Pago enviado para aprobación');
       setShowModal(false);
-      load();
-    } catch (err: any) { toast.error(err.response?.data?.message || 'Error'); }
-    finally { setSaving(false); }
-  };
-
-  const openModal = () => {
-    setPaymentDateRate(null);
-    setRateWarning(null);
-    reset({ currency: 'VES', payment_date: today, unit_id: '', fee_id: '', amount_original: '' });
-    setShowModal(true);
-  };
-
-  const openVoidModal = (payment: Payment) => {
-    setVoidTarget(payment);
-    setVoidReason('');
-  };
-
-  const openRejectModal = (payment: Payment) => {
-    setRejectTarget(payment);
-    setRejectReason('');
-  };
-
-  const closeVoidModal = () => {
-    if (voiding) return;
-    setVoidTarget(null);
-    setVoidReason('');
-  };
-
-  const closeRejectModal = () => {
-    if (rejecting) return;
-    setRejectTarget(null);
-    setRejectReason('');
-  };
-
-  const handleApprovePayment = async (payment: Payment) => {
-    setApprovingId(payment.id);
-    try {
-      await paymentsApi.approvePayment(payment.id);
-      toast.success('Pago aprobado');
-      await load();
+      setSelectedUnitId(data.unit_id);
+      await loadPayments(data.unit_id);
     } catch (err: any) {
       toast.error(err.response?.data?.message || 'Error');
     } finally {
-      setApprovingId(null);
+      setSaving(false);
     }
+  };
+
+  const openModal = () => {
+    if (!selectedUnitId) {
+      toast.error('Debe seleccionar una unidad');
+      return;
+    }
+    setPaymentDateRate(null);
+    setRateWarning(null);
+    reset({ unit_id: selectedUnitId, currency: 'VES', payment_date: today, fee_id: '', amount_original: '', reference: '', notes: '' });
+    setShowModal(true);
   };
 
   const columns = [
     {
-      key: 'unit', label: 'Unidad',
-      render: (p: Payment) => `${p.unit?.unit_number || '—'} — ${p.unit?.owner?.full_name || 'Sin propietario'}`,
-    },
-    {
       key: 'fee', label: 'Cuota',
-      render: (p: Payment) => p.fee?.name || 'Pago general',
+      render: (payment: Payment) => payment.fee?.name || 'Pago general',
     },
     {
       key: 'amount_original', label: 'Monto',
-      render: (p: Payment) => p.currency === 'USD' ? formatUSD(p.amount_original) : formatVES(p.amount_original),
+      render: (payment: Payment) => payment.currency === 'USD' ? formatUSD(payment.amount_original) : formatVES(payment.amount_original),
     },
     {
       key: 'amount_ves', label: 'En Bs.',
-      render: (p: Payment) => formatVES(p.amount_ves),
+      render: (payment: Payment) => formatVES(payment.amount_ves),
     },
     {
       key: 'amount_usd', label: 'En $USD',
-      render: (p: Payment) => {
-        const usdAmount = getPaymentUsdAmount(p);
+      render: (payment: Payment) => {
+        const usdAmount = getPaymentUsdAmount(payment);
         return usdAmount === null ? '—' : formatUSD(usdAmount);
       },
     },
@@ -313,18 +295,18 @@ export function PaymentsPage() {
     { key: 'reference', label: 'Referencia' },
     {
       key: 'status', label: 'Estado',
-      render: (p: Payment) => (
-        <span className={PAYMENT_STATUS_BADGE_CLASSES[p.status] || 'badge-blue'}>
-          {PAYMENT_STATUS_LABELS[p.status] || p.status}
+      render: (payment: Payment) => (
+        <span className={PAYMENT_STATUS_BADGE_CLASSES[payment.status] || 'badge-blue'}>
+          {PAYMENT_STATUS_LABELS[payment.status] || payment.status}
         </span>
       ),
     },
     {
       key: 'notes', label: 'Nota', sortable: false,
-      render: (p: Payment) => p.notes ? (
+      render: (payment: Payment) => payment.notes ? (
         <button
           type="button"
-          onClick={() => setNoteTarget(p)}
+          onClick={() => setNoteTarget(payment)}
           className="inline-flex h-8 w-8 items-center justify-center rounded-full border border-gray-300 text-gray-600 transition hover:border-primary-400 hover:text-primary-700"
           title="Ver nota"
         >
@@ -338,11 +320,11 @@ export function PaymentsPage() {
       ) : null,
     },
     {
-      key: 'details', label: 'Detalles', sortable: false, headerClassName: 'text-center', cellClassName: 'text-center',
-      render: (p: Payment) => p.status !== 'pending' ? (
+      key: 'actions', label: 'Acciones', sortable: false, headerClassName: 'text-center', cellClassName: 'text-center',
+      render: (payment: Payment) => payment.status !== 'pending' ? (
         <button
           type="button"
-          onClick={() => setInfoTarget(p)}
+          onClick={() => setInfoTarget(payment)}
           className="inline-flex h-8 w-8 items-center justify-center rounded-full border border-gray-300 text-gray-600 transition hover:border-primary-400 hover:text-primary-700"
           title="Ver detalle del pago"
         >
@@ -354,85 +336,98 @@ export function PaymentsPage() {
         </button>
       ) : null,
     },
-    {
-      key: 'actions', label: 'Acciones', sortable: false, headerClassName: 'text-center', cellClassName: 'text-center',
-      render: (p: Payment) => (
-        <div className="flex items-center justify-center gap-2">
-          {p.status === 'pending' && (
-            <>
-              <button
-                type="button"
-                onClick={() => handleApprovePayment(p)}
-                className="btn-primary text-xs py-1"
-                disabled={approvingId === p.id}
-              >
-                {approvingId === p.id ? 'Aprobando...' : 'Aprobar'}
-              </button>
-              <button type="button" onClick={() => openRejectModal(p)} className="btn-danger text-xs py-1">Rechazar</button>
-            </>
-          )}
-          {p.status === 'approved' && (
-            <button onClick={() => openVoidModal(p)} className="btn-danger text-xs py-1">Anular</button>
-          )}
-        </div>
-      ),
-    },
   ];
 
   const blockSubmit = saving || (requiresExchangeRate && !paymentDateRate) || exceedsSelectedFeeRemaining;
+
+  if (!loadingUnits && units.length === 0) {
+    return (
+      <div className="card text-center py-10 text-gray-500">
+        Su cuenta no tiene unidades habitacionales asociadas. Contáctese con la administración.
+      </div>
+    );
+  }
 
   return (
     <div>
       <div className="flex items-center justify-between mb-6">
         <div>
-          <h1 className="text-2xl font-bold text-gray-900">Pagos (CU-08)</h1>
+          <h1 className="text-2xl font-bold text-gray-900">Mis Pagos</h1>
           {latestRate && <p className="text-sm text-gray-500 mt-1">Tasa más reciente: 1 USD = {formatVES(latestRate.rate)}</p>}
         </div>
-        <button onClick={openModal} className="btn-primary">
+        <button onClick={openModal} className="btn-primary" disabled={loadingUnits || !selectedUnitId}>
           + Registrar Pago
         </button>
       </div>
-      <div className="card">
-        <DataTable
-          data={payments}
-          columns={columns}
-          loading={loading}
-          rowClassName={(p: Payment) => {
-            if (p.status === 'voided') return 'bg-red-50 text-red-700';
-            if (p.status === 'pending') return 'bg-amber-50';
-            if (p.status === 'rejected') return 'bg-slate-50';
-            return '';
-          }}
-        />
-      </div>
 
-      <Modal isOpen={showModal} title="Registrar Pago (CU-08)" onClose={() => setShowModal(false)}>
+      {loadingUnits ? (
+        <div className="card text-center py-10 text-gray-400">Cargando...</div>
+      ) : (
+        <>
+          <div className="card mb-6">
+            <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
+              <div>
+                <h2 className="font-semibold text-gray-700">Unidades Asociadas</h2>
+                <p className="text-sm text-gray-500 mt-1">Seleccione la unidad para consultar y registrar pagos.</p>
+              </div>
+              <div className="sm:w-72">
+                <label className="label">Unidad</label>
+                <select className="input" value={selectedUnitId} onChange={event => setSelectedUnitId(event.target.value)}>
+                  {units.map(unit => (
+                    <option key={unit.id} value={unit.id}>
+                      {unit.unit_number}
+                      {unit.building?.name ? ` - ${unit.building.name}` : ''}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            </div>
+          </div>
+
+          <div className="card">
+            <DataTable
+              data={payments}
+              columns={columns}
+              loading={loadingPayments}
+              rowClassName={(payment: Payment) => {
+                if (payment.status === 'voided') return 'bg-red-50 text-red-700';
+                if (payment.status === 'pending') return 'bg-amber-50';
+                if (payment.status === 'rejected') return 'bg-slate-50';
+                return '';
+              }}
+            />
+          </div>
+        </>
+      )}
+
+      <Modal isOpen={showModal} title="Registrar Pago" onClose={() => setShowModal(false)}>
         <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
           <div>
             <label className="label">Unidad <span className="text-red-500">*</span></label>
             <select {...register('unit_id')} className="input" required>
               <option value="">Seleccionar unidad...</option>
-              {units.map(u => (
-                <option key={u.id} value={u.id}>
-                  {u.unit_number} — {u.owner?.full_name || 'Sin propietario'}
+              {units.map(unit => (
+                <option key={unit.id} value={unit.id}>
+                  {unit.unit_number}
+                  {unit.building?.name ? ` - ${unit.building.name}` : ''}
                 </option>
               ))}
             </select>
           </div>
           <div>
             <label className="label">Cuota (opcional)</label>
-            <select {...register('fee_id')} className="input">
-              <option value="">Pago general / abono</option>
-              {availableFees.map(f => <option key={f.id} value={f.id}>{f.name}</option>)}
+            <select {...register('fee_id')} className="input" disabled={!selectedFormUnit}>
+              <option value="">{selectedFormUnit ? 'Pago general / abono' : 'Pago especial / abono'}</option>
+              {availableFees.map(fee => <option key={fee.id} value={fee.id}>{fee.name}</option>)}
             </select>
-            {selectedUnit && availableFees.length === 0 && (
+            {selectedFormUnit && availableFees.length === 0 && (
               <p className="text-xs text-amber-700 mt-1">
                 La unidad seleccionada no tiene cuotas pendientes aplicables. Puede registrar un pago general.
               </p>
             )}
-            {!selectedUnit && (
+            {!selectedFormUnit && (
               <p className="text-xs text-gray-500 mt-1">
-                Seleccione primero una unidad para ver las cuotas que aplican al condominio, a su estructura o a esa unidad.
+                Seleccione una unidad para ver las cuotas pendientes aplicables al condominio, su estructura o esa unidad.
               </p>
             )}
           </div>
@@ -497,21 +492,20 @@ export function PaymentsPage() {
             <label className="label">Notas</label>
             <textarea {...register('notes')} className="input" rows={3} />
           </div>
+          <div className="rounded-md border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
+            Los pagos registrados por residentes quedan con estado <strong>Por aprobar</strong> hasta que la administración los valide.
+          </div>
           <p className="text-xs text-gray-400"><span className="text-red-500">*</span> Requerido</p>
-          {saving && <p className="text-sm text-primary-700">Procesando información, por favor espere...</p>}
+          {saving && <p className="text-sm text-primary-700">Enviando pago, por favor espere...</p>}
           <div className="flex justify-end gap-3">
             <button type="button" onClick={() => setShowModal(false)} className="btn-secondary disabled:opacity-70 disabled:cursor-not-allowed" disabled={saving}>Cancelar</button>
-            <button type="submit" className="btn-primary disabled:opacity-70 disabled:cursor-not-allowed" disabled={blockSubmit}>{saving ? 'Guardando...' : 'Registrar Pago'}</button>
+            <button type="submit" className="btn-primary disabled:opacity-70 disabled:cursor-not-allowed" disabled={blockSubmit}>{saving ? 'Enviando...' : 'Enviar Pago'}</button>
           </div>
         </form>
       </Modal>
 
       {noteTarget && (
-        <Modal
-          isOpen={true}
-          title={`Nota del pago${noteTarget.reference ? ` ${noteTarget.reference}` : ''}`}
-          onClose={() => setNoteTarget(null)}
-        >
+        <Modal isOpen={true} title={`Nota del pago${noteTarget.reference ? ` ${noteTarget.reference}` : ''}`} onClose={() => setNoteTarget(null)}>
           <p className="text-gray-700 whitespace-pre-wrap">{noteTarget.notes}</p>
           <div className="flex justify-end mt-6">
             <button type="button" onClick={() => setNoteTarget(null)} className="btn-secondary">Cerrar</button>
@@ -520,23 +514,11 @@ export function PaymentsPage() {
       )}
 
       {infoTarget && (
-        <Modal
-          isOpen={true}
-          title="Detalle del pago"
-          onClose={() => setInfoTarget(null)}
-        >
+        <Modal isOpen={true} title="Detalle del pago" onClose={() => setInfoTarget(null)}>
           <div className="space-y-4 text-sm text-gray-700">
             <div>
               <p className="font-medium text-gray-900">Estado</p>
               <p>{PAYMENT_STATUS_LABELS[infoTarget.status] || infoTarget.status}</p>
-            </div>
-            <div>
-              <p className="font-medium text-gray-900">Registrado por</p>
-              <p>{infoTarget.registeredByUser?.full_name || infoTarget.registeredByUser?.username || 'No disponible'}</p>
-            </div>
-            <div>
-              <p className="font-medium text-gray-900">Fecha de registro</p>
-              <p>{formatPaymentDateTime(infoTarget.created_at)}</p>
             </div>
             {infoTarget.status === 'approved' && (
               <>
@@ -584,120 +566,6 @@ export function PaymentsPage() {
             )}
             <div className="flex justify-end">
               <button type="button" onClick={() => setInfoTarget(null)} className="btn-secondary">Cerrar</button>
-            </div>
-          </div>
-        </Modal>
-      )}
-
-      {rejectTarget && (
-        <Modal isOpen={true} title="Rechazar Pago" onClose={closeRejectModal}>
-          <div className="space-y-4">
-            <p className="text-sm text-gray-700">
-              {`Va a rechazar el pago${rejectTarget.reference ? ` N° ${rejectTarget.reference}` : ''} de ${rejectTarget.unit?.unit_number ?? ''}.`}
-            </p>
-            <div>
-              <label className="label">Motivo de rechazo <span className="text-red-500">*</span></label>
-              <textarea
-                value={rejectReason}
-                onChange={(event) => setRejectReason(event.target.value)}
-                className="input"
-                rows={4}
-                placeholder="Explique por qué se rechaza este pago"
-                disabled={rejecting}
-              />
-            </div>
-            <p className="text-xs text-gray-400"><span className="text-red-500">*</span> Requerido</p>
-            {rejecting && <p className="text-sm text-primary-700">Rechazando pago, por favor espere...</p>}
-            <div className="flex justify-end gap-3">
-              <button
-                type="button"
-                onClick={closeRejectModal}
-                className="btn-secondary disabled:opacity-70 disabled:cursor-not-allowed"
-                disabled={rejecting}
-              >
-                Cancelar
-              </button>
-              <button
-                type="button"
-                onClick={async () => {
-                  if (!rejectTarget || !rejectReason.trim()) {
-                    toast.error('Debe indicar el motivo del rechazo');
-                    return;
-                  }
-                  setRejecting(true);
-                  try {
-                    await paymentsApi.rejectPayment(rejectTarget.id, rejectReason.trim());
-                    toast.success('Pago rechazado');
-                    closeRejectModal();
-                    await load();
-                  } catch (err: any) {
-                    toast.error(err.response?.data?.message || 'Error');
-                  } finally {
-                    setRejecting(false);
-                  }
-                }}
-                className="btn-danger disabled:opacity-70 disabled:cursor-not-allowed"
-                disabled={rejecting || !rejectReason.trim()}
-              >
-                {rejecting ? 'Rechazando...' : 'Rechazar'}
-              </button>
-            </div>
-          </div>
-        </Modal>
-      )}
-
-      {voidTarget && (
-        <Modal isOpen={true} title="Anular Pago" onClose={closeVoidModal}>
-          <div className="space-y-4">
-            <p className="text-sm text-gray-700">
-              {`Va a anular el pago${voidTarget.reference ? ` N° ${voidTarget.reference}` : ''} de ${voidTarget.unit?.unit_number ?? ''}. Esta acción no se puede revertir.`}
-            </p>
-            <div>
-              <label className="label">Motivo de anulación <span className="text-red-500">*</span></label>
-              <textarea
-                value={voidReason}
-                onChange={(event) => setVoidReason(event.target.value)}
-                className="input"
-                rows={4}
-                placeholder="Explique por qué se anula este pago"
-                disabled={voiding}
-              />
-            </div>
-            <p className="text-xs text-gray-400"><span className="text-red-500">*</span> Requerido</p>
-            {voiding && <p className="text-sm text-primary-700">Anulando pago, por favor espere...</p>}
-            <div className="flex justify-end gap-3">
-              <button
-                type="button"
-                onClick={closeVoidModal}
-                className="btn-secondary disabled:opacity-70 disabled:cursor-not-allowed"
-                disabled={voiding}
-              >
-                Cancelar
-              </button>
-              <button
-                type="button"
-                onClick={async () => {
-                  if (!voidTarget || !voidReason.trim()) {
-                    toast.error('Debe indicar el motivo de la anulación');
-                    return;
-                  }
-                  setVoiding(true);
-                  try {
-                    await paymentsApi.voidPayment(voidTarget.id, voidReason.trim());
-                    toast.success('Pago anulado');
-                    closeVoidModal();
-                    load();
-                  } catch (err: any) {
-                    toast.error(err.response?.data?.message || 'Error');
-                  } finally {
-                    setVoiding(false);
-                  }
-                }}
-                className="btn-danger disabled:opacity-70 disabled:cursor-not-allowed"
-                disabled={voiding || !voidReason.trim()}
-              >
-                {voiding ? 'Anulando...' : 'Anular'}
-              </button>
             </div>
           </div>
         </Modal>
