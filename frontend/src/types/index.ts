@@ -81,6 +81,7 @@ export interface Payment {
   fee_id?: string;
   fee?: Fee;
   amount_ves: number;
+  amount_usd?: number | null;
   amount_original: number;
   currency: Currency;
   exchange_rate: number;

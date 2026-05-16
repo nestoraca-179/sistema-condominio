@@ -78,7 +78,7 @@ export function NoticesPage() {
           </div>
           <div>
             <label className="label">Contenido <span className="text-red-500">*</span></label>
-            <textarea {...register('content')} className="input" rows={5} required />
+            <textarea {...register('content')} className="input" rows={4} required />
           </div>
           <div>
             <label className="label">Destinatarios</label>

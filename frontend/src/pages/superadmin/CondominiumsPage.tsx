@@ -132,7 +132,7 @@ export function CondominiumsPage() {
           </div>
           <div>
             <label className="label">Dirección <span className="text-red-500">*</span></label>
-            <textarea {...register('address')} className="input" rows={2} />
+            <textarea {...register('address')} className="input" rows={3} />
             {errors.address && <p className="text-red-500 text-xs mt-1">Dirección requerida</p>}
           </div>
           {saving && <p className="text-sm text-primary-700">Procesando información, por favor espere...</p>}

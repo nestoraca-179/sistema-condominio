@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import toast from 'react-hot-toast';
 import { useForm } from 'react-hook-form';
 import { paymentsApi } from '../../api/payments.api';
@@ -10,7 +10,7 @@ import { DataTable } from '../../components/common/DataTable';
 import { Modal } from '../../components/common/Modal';
 import { ConfirmModal } from '../../components/common/ConfirmModal';
 import { formatVES, formatUSD } from '../../utils/currency';
-import type { Payment, Unit, Fee, ExchangeRate } from '../../types';
+import type { Payment, Unit, Fee, ExchangeRate, Building } from '../../types';
 
 function getTodayDateString() {
   const now = new Date();
@@ -20,10 +20,29 @@ function getTodayDateString() {
   return `${year}-${month}-${day}`;
 }
 
+function roundMoney(value: number) {
+  return Number(value.toFixed(2));
+}
+
+function getPaymentUsdAmount(payment: Payment) {
+  if (payment.amount_usd !== null && payment.amount_usd !== undefined) {
+    return Number(payment.amount_usd);
+  }
+
+  if (payment.currency === 'USD') {
+    return Number(payment.amount_original);
+  }
+
+  const exchangeRate = Number(payment.exchange_rate || 0);
+  if (exchangeRate <= 0) return null;
+  return roundMoney(Number(payment.amount_ves) / exchangeRate);
+}
+
 export function PaymentsPage() {
   const { user } = useAuth();
   const condominiumId = user?.condominium_id || '';
   const [payments, setPayments] = useState<Payment[]>([]);
+  const [buildings, setBuildings] = useState<Building[]>([]);
   const [units, setUnits] = useState<Unit[]>([]);
   const [fees, setFees] = useState<Fee[]>([]);
   const [latestRate, setLatestRate] = useState<ExchangeRate | null>(null);
@@ -37,21 +56,124 @@ export function PaymentsPage() {
 
   const today = getTodayDateString();
 
-  const { register, handleSubmit, reset, watch } = useForm<any>({
+  const { register, handleSubmit, reset, watch, setValue } = useForm<any>({
     defaultValues: { currency: 'VES', payment_date: today },
   });
+  const selectedUnitId = watch('unit_id');
+  const selectedFeeId = watch('fee_id');
   const currency = watch('currency');
   const amount = watch('amount_original');
   const paymentDate = watch('payment_date');
 
-  // Fetch rate for the selected payment date when currency is USD
+  const selectedUnit = useMemo(
+    () => units.find(unit => unit.id === selectedUnitId),
+    [units, selectedUnitId],
+  );
+
+  const selectedFee = useMemo(
+    () => fees.find(fee => fee.id === selectedFeeId),
+    [fees, selectedFeeId],
+  );
+
+  const requiresExchangeRate = currency === 'USD' || selectedFee?.currency === 'USD';
+
+  const getPaymentAmountInFeeCurrency = (payment: Payment, feeCurrency: Fee['currency']) => {
+    if (feeCurrency === 'USD') {
+      if (payment.amount_usd !== null && payment.amount_usd !== undefined) {
+        return Number(payment.amount_usd);
+      }
+
+      if (payment.currency === 'USD') {
+        return Number(payment.amount_original);
+      }
+
+      const exchangeRate = Number(payment.exchange_rate || 0);
+      return exchangeRate > 0 ? roundMoney(Number(payment.amount_ves) / exchangeRate) : 0;
+    }
+
+    return Number(payment.amount_ves);
+  };
+
+  const getPaidAmountForFee = (fee: Fee, unitId: string) => {
+    return payments
+      .filter(payment => !payment.is_voided && payment.unit_id === unitId && payment.fee_id === fee.id)
+      .reduce((sum, payment) => sum + getPaymentAmountInFeeCurrency(payment, fee.currency), 0);
+  };
+
+  const getRemainingAmountForFee = (fee: Fee, unitId: string) => {
+    const total = fee.currency === 'USD' ? Number(fee.amount_original) : Number(fee.amount_ves);
+    const paid = getPaidAmountForFee(fee, unitId);
+    return roundMoney(Math.max(total - paid, 0));
+  };
+
+  const applicableBuildingIds = useMemo(() => {
+    if (!selectedUnit) return new Set<string>();
+
+    const ids = new Set<string>();
+    let currentId: string | undefined = selectedUnit.building_id;
+
+    while (currentId) {
+      ids.add(currentId);
+      const currentBuilding = buildings.find(building => building.id === currentId);
+      currentId = currentBuilding?.parent_id ?? undefined;
+    }
+
+    return ids;
+  }, [buildings, selectedUnit]);
+
+  const availableFees = useMemo(() => {
+    if (!selectedUnit) return [];
+
+    return fees.filter(fee => {
+      if (!fee.applies_to || fee.applies_to === 'condominium') return true;
+      if (fee.applies_to === 'unit') return fee.target_unit_id === selectedUnit.id;
+      if (fee.applies_to === 'building') return !!fee.target_building_id && applicableBuildingIds.has(fee.target_building_id);
+      return false;
+    }).filter(fee => getRemainingAmountForFee(fee, selectedUnit.id) > 0.01);
+  }, [applicableBuildingIds, fees, selectedUnit, payments]);
+
+  const selectedFeeRemaining = useMemo(() => {
+    if (!selectedUnit || !selectedFee) return null;
+    return getRemainingAmountForFee(selectedFee, selectedUnit.id);
+  }, [selectedFee, selectedUnit, payments]);
+
+  const remainingInSelectedCurrency = useMemo(() => {
+    if (selectedFeeRemaining === null || selectedFeeRemaining === undefined || !selectedFee) return null;
+    if (selectedFee.currency === currency) return selectedFeeRemaining;
+    if (!paymentDateRate || Number(paymentDateRate.rate) <= 0) return null;
+
+    return currency === 'USD'
+      ? roundMoney(selectedFeeRemaining / Number(paymentDateRate.rate))
+      : roundMoney(selectedFeeRemaining * Number(paymentDateRate.rate));
+  }, [currency, paymentDateRate, selectedFee, selectedFeeRemaining]);
+
+  const enteredAmountInFeeCurrency = useMemo(() => {
+    const numericAmount = Number(amount || 0);
+    if (!selectedFee || !numericAmount) return null;
+    if (selectedFee.currency === currency) return numericAmount;
+    if (!paymentDateRate || Number(paymentDateRate.rate) <= 0) return null;
+
+    return currency === 'USD'
+      ? roundMoney(numericAmount * Number(paymentDateRate.rate))
+      : roundMoney(numericAmount / Number(paymentDateRate.rate));
+  }, [amount, currency, paymentDateRate, selectedFee]);
+
+  const exceedsSelectedFeeRemaining = useMemo(() => {
+    if (selectedFeeRemaining === null || enteredAmountInFeeCurrency === null) return false;
+    return enteredAmountInFeeCurrency - selectedFeeRemaining > 0.01;
+  }, [enteredAmountInFeeCurrency, selectedFeeRemaining]);
+
+  const previewUsd = useMemo(() => {
+    const numericAmount = Number(amount || 0);
+    if (!numericAmount || !paymentDateRate || Number(paymentDateRate.rate) <= 0) return null;
+    if (currency !== 'VES') return null;
+    return roundMoney(numericAmount / Number(paymentDateRate.rate));
+  }, [amount, currency, paymentDateRate]);
+
+  // Fetch rate for the selected payment date to support previews and required validations.
   useEffect(() => {
     if (!paymentDate) return;
-    if (currency !== 'USD') {
-      setPaymentDateRate(null);
-      setRateWarning(null);
-      return;
-    }
+
     exchangeRatesApi.getByDate(paymentDate)
       .then(res => {
         setPaymentDateRate(res.data);
@@ -59,10 +181,15 @@ export function PaymentsPage() {
       })
       .catch(() => {
         setPaymentDateRate(null);
-        const formatted = new Date(`${paymentDate}T00:00:00`).toLocaleDateString('es-VE');
-        setRateWarning(`No hay tasa de cambio registrada para el ${formatted}. Registre la tasa antes de continuar.`);
+        if (requiresExchangeRate) {
+          const formatted = new Date(`${paymentDate}T00:00:00`).toLocaleDateString('es-VE');
+          setRateWarning(`No hay tasa de cambio registrada para el ${formatted}. Registre la tasa antes de continuar.`);
+          return;
+        }
+
+        setRateWarning(null);
       });
-  }, [paymentDate, currency]);
+  }, [paymentDate, requiresExchangeRate]);
 
   const previewVes = () => {
     if (!amount) return '—';
@@ -76,13 +203,15 @@ export function PaymentsPage() {
   const load = async () => {
     setLoading(true);
     try {
-      const [p, u, f, er] = await Promise.all([
+      const [p, b, u, f, er] = await Promise.all([
         paymentsApi.getAll(condominiumId),
+        buildingsApi.getSectors(condominiumId),
         buildingsApi.getUnits(condominiumId),
         feesApi.getAll(condominiumId, true),
         exchangeRatesApi.getLatest().catch(() => null),
       ]);
       setPayments(p.data);
+      setBuildings(b.data);
       setUnits(u.data);
       setFees(f.data);
       if (er) setLatestRate(er.data);
@@ -91,14 +220,26 @@ export function PaymentsPage() {
 
   useEffect(() => { load(); }, [condominiumId]);
 
+  useEffect(() => {
+    if (!selectedFeeId) return;
+    const feeStillAvailable = availableFees.some(fee => fee.id === selectedFeeId);
+    if (!feeStillAvailable) {
+      setValue('fee_id', '');
+    }
+  }, [availableFees, selectedFeeId, setValue]);
+
   const onSubmit = async (data: any) => {
-    if (data.currency === 'USD' && !paymentDateRate) {
+    if (requiresExchangeRate && !paymentDateRate) {
       toast.error('No hay tasa de cambio para la fecha del pago');
+      return;
+    }
+    if (exceedsSelectedFeeRemaining) {
+      toast.error('El monto ingresado excede el saldo pendiente de la cuota seleccionada');
       return;
     }
     setSaving(true);
     try {
-      const exchangeRateValue = data.currency === 'USD' ? Number(paymentDateRate!.rate) : 0;
+      const exchangeRateValue = requiresExchangeRate ? Number(paymentDateRate!.rate) : 0;
       const payload: any = {
         ...data,
         amount_original: parseFloat(data.amount_original),
@@ -116,7 +257,7 @@ export function PaymentsPage() {
   const openModal = () => {
     setPaymentDateRate(null);
     setRateWarning(null);
-    reset({ currency: 'VES', payment_date: today });
+    reset({ currency: 'VES', payment_date: today, unit_id: '', fee_id: '', amount_original: '' });
     setShowModal(true);
   };
 
@@ -137,6 +278,13 @@ export function PaymentsPage() {
       key: 'amount_ves', label: 'En Bs.',
       render: (p: Payment) => formatVES(p.amount_ves),
     },
+    {
+      key: 'amount_usd', label: 'En $USD',
+      render: (p: Payment) => {
+        const usdAmount = getPaymentUsdAmount(p);
+        return usdAmount === null ? '—' : formatUSD(usdAmount);
+      },
+    },
     { key: 'payment_date', label: 'Fecha' },
     { key: 'reference', label: 'Referencia' },
     {
@@ -153,7 +301,7 @@ export function PaymentsPage() {
     },
   ];
 
-  const blockSubmit = saving || (currency === 'USD' && !paymentDateRate);
+  const blockSubmit = saving || (requiresExchangeRate && !paymentDateRate) || exceedsSelectedFeeRemaining;
 
   return (
     <div>
@@ -192,8 +340,18 @@ export function PaymentsPage() {
             <label className="label">Cuota (opcional)</label>
             <select {...register('fee_id')} className="input">
               <option value="">Pago general / abono</option>
-              {fees.map(f => <option key={f.id} value={f.id}>{f.name}</option>)}
+              {availableFees.map(f => <option key={f.id} value={f.id}>{f.name}</option>)}
             </select>
+            {selectedUnit && availableFees.length === 0 && (
+              <p className="text-xs text-amber-700 mt-1">
+                La unidad seleccionada no tiene cuotas pendientes aplicables. Puede registrar un pago general.
+              </p>
+            )}
+            {!selectedUnit && (
+              <p className="text-xs text-gray-500 mt-1">
+                Seleccione primero una unidad para ver las cuotas que aplican al condominio, a su estructura o a esa unidad.
+              </p>
+            )}
           </div>
           <div className="grid grid-cols-2 gap-4">
             <div>
@@ -218,25 +376,43 @@ export function PaymentsPage() {
               <input {...register('reference')} className="input" placeholder="0001-2026" />
             </div>
           </div>
-          {currency === 'USD' && rateWarning && (
+          {requiresExchangeRate && rateWarning && (
             <div className="rounded-md bg-red-50 border border-red-200 px-4 py-3 text-sm text-red-700">
               {rateWarning}
+            </div>
+          )}
+          {selectedFee && selectedFeeRemaining !== null && (
+            <div className="rounded-md border border-blue-200 bg-blue-50 px-4 py-3 text-sm text-blue-900">
+              <p>
+                Saldo pendiente de la cuota: <strong>{selectedFee.currency === 'USD' ? `${selectedFeeRemaining.toFixed(2)} USD` : formatVES(selectedFeeRemaining)}</strong>
+              </p>
+              {remainingInSelectedCurrency !== null && selectedFee.currency !== currency && (
+                <p className="mt-1 text-blue-800">
+                  Equivalente en la moneda seleccionada: <strong>{currency === 'USD' ? `${remainingInSelectedCurrency.toFixed(2)} USD` : formatVES(remainingInSelectedCurrency)}</strong>
+                </p>
+              )}
+            </div>
+          )}
+          {exceedsSelectedFeeRemaining && (
+            <div className="rounded-md border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+              El monto ingresado supera el saldo pendiente de la cuota seleccionada.
             </div>
           )}
           {currency === 'USD' && paymentDateRate && (
             <div className="bg-gray-50 rounded p-3 text-sm text-gray-600">
               Tasa del {new Date(`${paymentDate}T00:00:00`).toLocaleDateString('es-VE')}: <strong>1 USD = {formatVES(paymentDateRate.rate)}</strong>
-              <span className="ml-4">Equivalente: <strong>{previewVes()}</strong></span>
+              <span className="ml-4">Equivalente en Bs.: <strong>{previewVes()}</strong></span>
             </div>
           )}
-          {currency === 'VES' && (
+          {currency === 'VES' && paymentDateRate && previewUsd !== null && (
             <div className="bg-gray-50 rounded p-3 text-sm text-gray-600">
-              Equivalente en Bs.: <strong>{previewVes()}</strong>
+              Tasa del {new Date(`${paymentDate}T00:00:00`).toLocaleDateString('es-VE')}: <strong>1 USD = {formatVES(paymentDateRate.rate)}</strong>
+              <span className="ml-4">Equivalente en USD: <strong>{formatUSD(previewUsd)}</strong></span>
             </div>
           )}
           <div>
             <label className="label">Notas</label>
-            <textarea {...register('notes')} className="input" rows={2} />
+            <textarea {...register('notes')} className="input" rows={3} />
           </div>
           <p className="text-xs text-gray-400"><span className="text-red-500">*</span> Requerido</p>
           {saving && <p className="text-sm text-primary-700">Procesando información, por favor espere...</p>}

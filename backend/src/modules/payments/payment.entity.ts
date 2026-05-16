@@ -25,6 +25,9 @@ export class Payment {
   @Column({ type: 'decimal', precision: 15, scale: 2 })
   amount_ves: number;
 
+  @Column({ type: 'decimal', precision: 15, scale: 2, nullable: true })
+  amount_usd: number | null;
+
   @Column({ type: 'decimal', precision: 15, scale: 2 })
   amount_original: number;
 

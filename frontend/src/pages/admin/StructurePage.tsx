@@ -106,6 +106,7 @@ export function StructurePage() {
   const [buildings, setBuildings] = useState<Building[]>([]);
   const [units, setUnits] = useState<Unit[]>([]);
   const [residents, setResidents] = useState<User[]>([]);
+  const [loading, setLoading] = useState(true);
   const [showBuildingModal, setShowBuildingModal] = useState(false);
   const [showUnitModal, setShowUnitModal] = useState(false);
   const [editingBuilding, setEditingBuilding] = useState<Building | null>(null);
@@ -121,15 +122,24 @@ export function StructurePage() {
   const { register: regU, handleSubmit: hsU, reset: resetU } = useForm<UnitFormValues>();
 
   const load = async () => {
-    if (!condominiumId) return;
-    const [b, u, r] = await Promise.all([
-      buildingsApi.getSectors(condominiumId),
-      buildingsApi.getUnits(condominiumId),
-      usersApi.getAll(condominiumId),
-    ]);
-    setBuildings(b.data);
-    setUnits(u.data);
-    setResidents(r.data.filter(u => u.role === 'resident'));
+    if (!condominiumId) {
+      setLoading(false);
+      return;
+    }
+
+    setLoading(true);
+    try {
+      const [b, u, r] = await Promise.all([
+        buildingsApi.getSectors(condominiumId),
+        buildingsApi.getUnits(condominiumId),
+        usersApi.getAll(condominiumId),
+      ]);
+      setBuildings(b.data);
+      setUnits(u.data);
+      setResidents(r.data.filter(u => u.role === 'resident'));
+    } finally {
+      setLoading(false);
+    }
   };
 
   useEffect(() => { load(); }, [condominiumId]);
@@ -282,6 +292,23 @@ export function StructurePage() {
       ),
     },
   ];
+
+  if (loading) {
+    return (
+      <div className="flex min-h-[320px] flex-col items-center justify-center gap-4 rounded-xl border border-gray-200 bg-white text-center">
+        <div className="flex h-14 w-14 items-center justify-center rounded-full bg-primary-50 text-primary-700">
+          <svg className="h-7 w-7 animate-spin" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+            <circle cx="12" cy="12" r="9" className="stroke-current opacity-25" strokeWidth="3" />
+            <path d="M21 12a9 9 0 0 0-9-9" className="stroke-current" strokeWidth="3" strokeLinecap="round" />
+          </svg>
+        </div>
+        <div>
+          <p className="text-base font-medium text-gray-800">Cargando...</p>
+          <p className="text-sm text-gray-500">Recuperando la estructura y las unidades del condominio.</p>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div>
