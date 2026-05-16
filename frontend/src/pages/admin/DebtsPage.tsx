@@ -13,6 +13,10 @@ import { StatCard } from '../../components/common/StatCard';
 import { formatVES } from '../../utils/currency';
 import type { Building, Debt, Fee, Payment, Unit } from '../../types';
 
+function isApprovedPayment(payment: Payment) {
+  return payment.status === 'approved' && !payment.is_voided;
+}
+
 function getTodayDateString() {
   const now = new Date();
   const year = now.getFullYear();
@@ -177,7 +181,7 @@ export function DebtsPage() {
 
   const paymentsByFeeAndUnit = useMemo(() => {
     return payments.reduce<Record<string, number>>((accumulator, payment) => {
-      if (payment.is_voided || !payment.fee_id) return accumulator;
+      if (!isApprovedPayment(payment) || !payment.fee_id) return accumulator;
       const key = `${payment.fee_id}:${payment.unit_id}`;
       accumulator[key] = Number((accumulator[key] || 0) + Number(payment.amount_ves));
       return accumulator;

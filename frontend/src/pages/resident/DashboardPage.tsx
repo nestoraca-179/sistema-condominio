@@ -7,6 +7,32 @@ import { DataTable } from '../../components/common/DataTable';
 import { formatUSD, formatVES } from '../../utils/currency';
 import type { Debt, Payment, Unit } from '../../types';
 
+const DEBT_STATUS_LABELS: Record<string, string> = {
+  pending: 'Pendiente',
+  partial: 'Parcial',
+  paid: 'Pagada',
+  waived: 'Condonada',
+};
+
+function isApprovedPayment(payment: Payment) {
+  return payment.status === 'approved' && !payment.is_voided;
+}
+
+function getTodayDateString() {
+  const now = new Date();
+  const year = now.getFullYear();
+  const month = String(now.getMonth() + 1).padStart(2, '0');
+  const day = String(now.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+}
+
+function getOutstandingAmount(debt: Pick<Debt, 'original_amount_ves' | 'late_fee_ves' | 'paid_amount_ves'>) {
+  return Math.max(
+    Number(debt.original_amount_ves) + Number(debt.late_fee_ves) - Number(debt.paid_amount_ves),
+    0,
+  );
+}
+
 export function ResidentDashboard() {
   const { user } = useAuth();
   const [statement, setStatement] = useState<any>(null);
@@ -14,6 +40,7 @@ export function ResidentDashboard() {
   const [selectedUnitId, setSelectedUnitId] = useState('');
   const [loadingUnits, setLoadingUnits] = useState(true);
   const [loadingStatement, setLoadingStatement] = useState(false);
+  const today = getTodayDateString();
 
   useEffect(() => {
     if (!user) {
@@ -56,7 +83,7 @@ export function ResidentDashboard() {
       key: 'status', label: 'Estado',
       render: (d: Debt) => {
         const map: Record<string, string> = { pending: 'badge-red', partial: 'badge-yellow', paid: 'badge-green', waived: 'badge-blue' };
-        return <span className={map[d.status] || 'badge-blue'}>{d.status}</span>;
+        return <span className={map[d.status] || 'badge-blue'}>{DEBT_STATUS_LABELS[d.status] || d.status}</span>;
       },
     },
   ];
@@ -69,7 +96,10 @@ export function ResidentDashboard() {
     { key: 'reference', label: 'Comprobante' },
   ];
 
-  const validPayments = (statement?.payments || []).filter((payment: Payment) => !payment.is_voided);
+  const outstandingDebts = (statement?.debts || []).filter((debt: Debt) => getOutstandingAmount(debt) > 0.01);
+  const overdueDebts = outstandingDebts.filter((debt: Debt) => debt.due_date < today);
+  const currentDebts = outstandingDebts.filter((debt: Debt) => debt.due_date >= today);
+  const validPayments = (statement?.payments || []).filter((payment: Payment) => isApprovedPayment(payment));
   const totalPaidVes = validPayments.reduce(
     (sum: number, payment: Payment) => sum + Number(payment.amount_ves || 0),
     0,
@@ -79,6 +109,7 @@ export function ResidentDashboard() {
     0,
   );
   const pendingTotalVes = Number(statement?.pending_total_ves ?? statement?.summary?.total_pending_ves ?? 0);
+  const pendingTotalUsd = Number(statement?.pending_total_usd ?? statement?.summary?.total_pending_usd ?? 0);
 
   if (!loadingUnits && units.length === 0) {
     return (
@@ -136,16 +167,42 @@ export function ResidentDashboard() {
       )}
       {!loadingUnits && units.length > 0 && (
         <>
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6 mb-6">
+          <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-6 gap-6 mb-6">
             <StatCard
               label="Saldo Pendiente (Bs.)"
               value={formatVES(pendingTotalVes)}
               colorClass={pendingTotalVes > 0 ? 'text-red-600' : 'text-green-600'}
               loading={loadingStatement}
             />
-            <StatCard label="Deudas Pendientes" value={statement?.debts?.filter((d: Debt) => d.status !== 'paid').length ?? 0} loading={loadingStatement} />
-            <StatCard label="Total Pagado (Bs.)" value={formatVES(Number(statement?.total_paid_ves ?? statement?.summary?.total_paid_ves ?? totalPaidVes))} colorClass="text-green-600" loading={loadingStatement} />
-            <StatCard label="Total Pagado ($)" value={formatUSD(Number(statement?.total_paid_usd ?? statement?.summary?.total_paid_usd ?? totalPaidUsd))} colorClass="text-blue-600" loading={loadingStatement} />
+            <StatCard
+              label="Saldo Pendiente ($)"
+              value={formatUSD(pendingTotalUsd)}
+              colorClass={pendingTotalUsd > 0 ? 'text-amber-600' : 'text-green-600'}
+              loading={loadingStatement}
+            />
+            <StatCard
+              label="Deudas Pendientes"
+              value={Number(statement?.summary?.current_items ?? currentDebts.length)}
+              loading={loadingStatement}
+            />
+            <StatCard
+              label="Cuotas en Mora"
+              value={Number(statement?.summary?.overdue_items ?? overdueDebts.length)}
+              colorClass={(Number(statement?.summary?.overdue_items ?? overdueDebts.length) > 0) ? 'text-red-600' : 'text-green-600'}
+              loading={loadingStatement}
+            />
+            <StatCard
+              label="Total Pagado (Bs.)"
+              value={formatVES(Number(statement?.total_paid_ves ?? statement?.summary?.total_paid_ves ?? totalPaidVes))}
+              colorClass="text-green-600"
+              loading={loadingStatement}
+            />
+            <StatCard
+              label="Total Pagado ($)"
+              value={formatUSD(Number(statement?.total_paid_usd ?? statement?.summary?.total_paid_usd ?? totalPaidUsd))}
+              colorClass="text-blue-600"
+              loading={loadingStatement}
+            />
           </div>
 
           {!loadingStatement && statement && pendingTotalVes > 0 && (
@@ -158,7 +215,7 @@ export function ResidentDashboard() {
             <>
               <div className="card mb-6">
                 <h2 className="font-semibold text-gray-700 mb-3">Cuotas Pendientes</h2>
-                <DataTable data={statement.debts?.filter((d: Debt) => d.status !== 'paid') || []} columns={debtColumns} />
+                <DataTable data={outstandingDebts} columns={debtColumns} />
               </div>
               <div className="card">
                 <h2 className="font-semibold text-gray-700 mb-3">Historial de Pagos</h2>

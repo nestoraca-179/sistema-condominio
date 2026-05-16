@@ -1,5 +1,6 @@
 export type Role = 'superadmin' | 'admin' | 'accountant' | 'resident';
 export type Currency = 'VES' | 'USD';
+export type PaymentStatus = 'approved' | 'pending' | 'rejected' | 'voided';
 export type FeeType = 'ordinary' | 'extraordinary';
 export type FeeApplyScope = 'condominium' | 'building' | 'unit';
 export type DebtStatus = 'pending' | 'partial' | 'paid' | 'waived';
@@ -91,6 +92,14 @@ export interface Payment {
   registeredByUser?: User;
   notes?: string;
   created_at: string;
+  status: PaymentStatus;
+  approved_at?: string | null;
+  approved_by?: string | null;
+  approvedByUser?: User;
+  rejected_at?: string | null;
+  rejected_by?: string | null;
+  rejectedByUser?: User;
+  rejection_reason?: string | null;
   is_voided: boolean;
   voided_at?: string | null;
   voided_by?: string | null;
