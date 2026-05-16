@@ -3,7 +3,22 @@ import { reportsApi } from '../../api/reports.api';
 import { useAuth } from '../../contexts/AuthContext';
 import { DataTable } from '../../components/common/DataTable';
 import { StatCard } from '../../components/common/StatCard';
-import { formatVES } from '../../utils/currency';
+import { formatVES, formatUSD } from '../../utils/currency';
+
+const MONTH_LABELS = [
+  'Enero',
+  'Febrero',
+  'Marzo',
+  'Abril',
+  'Mayo',
+  'Junio',
+  'Julio',
+  'Agosto',
+  'Septiembre',
+  'Octubre',
+  'Noviembre',
+  'Diciembre',
+];
 
 interface GlobalStatementRow {
   id: string;
@@ -24,6 +39,7 @@ interface GlobalStatementResponse {
   month?: number;
   by_unit?: GlobalStatementRow[];
   grand_total_ves?: number;
+  grand_total_usd?: number;
 }
 
 export function GlobalStatementPage() {
@@ -34,6 +50,7 @@ export function GlobalStatementPage() {
   const [month, setMonth] = useState<number | ''>('');
   const [data, setData] = useState<GlobalStatementRow[]>([]);
   const [grandTotalVes, setGrandTotalVes] = useState(0);
+  const [grandTotalUsd, setGrandTotalUsd] = useState(0);
   const [loading, setLoading] = useState(false);
 
   const load = async () => {
@@ -45,11 +62,14 @@ export function GlobalStatementPage() {
         ? payload.by_unit.map((row, index) => ({
             ...row,
             id: row.unit?.id || `${row.unit?.unit_number || 'unit'}-${index}`,
-          }))
+          })).sort((left, right) =>
+            (left.unit?.unit_number || '').localeCompare(right.unit?.unit_number || '', 'es', { numeric: true, sensitivity: 'base' }),
+          )
         : [];
 
       setData(rows);
       setGrandTotalVes(Number(payload.grand_total_ves || 0));
+      setGrandTotalUsd(Number(payload.grand_total_usd || 0));
     } catch { } finally { setLoading(false); }
   };
 
@@ -67,6 +87,10 @@ export function GlobalStatementPage() {
     {
       key: 'total_ves', label: 'Total Bs.',
       render: (r: GlobalStatementRow) => formatVES(r.total_ves),
+    },
+    {
+      key: 'total_usd', label: 'Total USD',
+      render: (r: GlobalStatementRow) => formatUSD(r.total_usd),
     },
     {
       key: 'payment_count', label: 'N° Pagos',
@@ -88,7 +112,7 @@ export function GlobalStatementPage() {
             <select className="input" value={month} onChange={e => setMonth(e.target.value ? Number(e.target.value) : '')}>
               <option value="">Todos los meses</option>
               {Array.from({ length: 12 }, (_, i) => i + 1).map(m => (
-                <option key={m} value={m}>{m}</option>
+                <option key={m} value={m}>{MONTH_LABELS[m - 1]}</option>
               ))}
             </select>
           </div>
@@ -99,8 +123,9 @@ export function GlobalStatementPage() {
       </div>
 
       {data.length > 0 && (
-        <div className="mb-6">
+        <div className="mb-6 grid gap-4 md:grid-cols-2">
           <StatCard label="Total General Recaudado (Bs.)" value={formatVES(grandTotalVes)} colorClass="text-green-600" />
+          <StatCard label="Total General Recaudado (USD)" value={formatUSD(grandTotalUsd)} colorClass="text-emerald-600" />
         </div>
       )}
 

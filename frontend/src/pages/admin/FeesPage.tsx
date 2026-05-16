@@ -53,6 +53,27 @@ function formatDateTime(value: string) {
   return new Date(value).toLocaleString('es-VE');
 }
 
+function roundMoney(value: number) {
+  return Number(value.toFixed(2));
+}
+
+function getPaymentAmountInFeeCurrency(payment: Payment, feeCurrency: Fee['currency']) {
+  if (feeCurrency === 'USD') {
+    if (payment.amount_usd !== null && payment.amount_usd !== undefined) {
+      return Number(payment.amount_usd);
+    }
+
+    if (payment.currency === 'USD') {
+      return Number(payment.amount_original);
+    }
+
+    const exchangeRate = Number(payment.exchange_rate || 0);
+    return exchangeRate > 0 ? roundMoney(Number(payment.amount_ves) / exchangeRate) : 0;
+  }
+
+  return Number(payment.amount_ves);
+}
+
 function isSameDate(value: string | undefined | null, expectedDate: string) {
   if (!value) return false;
   return value.slice(0, 10) === expectedDate;
@@ -70,6 +91,16 @@ function getFeeScopeLabel(fee: Fee) {
   return SCOPE_LABELS[fee.applies_to || 'condominium'];
 }
 
+interface FeeCoverageSummary {
+  expectedUnits: number;
+  paidUnits: number;
+  missingUnits: number;
+  totalPaidAmount: number;
+  totalExpectedAmount: number;
+  remainingAmount: number;
+  isPaid: boolean;
+}
+
 export function FeesPage() {
   const { user } = useAuth();
   const condominiumId = user?.condominium_id || '';
@@ -83,6 +114,7 @@ export function FeesPage() {
   const [showModal, setShowModal] = useState(false);
   const [editingFee, setEditingFee] = useState<Fee | null>(null);
   const [deactivateTarget, setDeactivateTarget] = useState<Fee | null>(null);
+  const [detailsFee, setDetailsFee] = useState<Fee | null>(null);
   const [paymentsFee, setPaymentsFee] = useState<Fee | null>(null);
 
   const today = getTodayDateString();
@@ -122,6 +154,74 @@ export function FeesPage() {
   const getFeePayments = (feeId: string) => paymentsByFeeId[feeId] || [];
 
   const feeHasPayments = (feeId: string) => lockedFeeIds.has(feeId);
+
+  const unitLineageByUnitId = useMemo(() => {
+    const buildingsById = new Map(buildings.map(building => [building.id, building]));
+
+    return units.reduce<Record<string, Set<string>>>((accumulator, unit) => {
+      const lineage = new Set<string>();
+      let currentId: string | undefined = unit.building_id;
+
+      while (currentId) {
+        lineage.add(currentId);
+        currentId = buildingsById.get(currentId)?.parent_id ?? undefined;
+      }
+
+      accumulator[unit.id] = lineage;
+      return accumulator;
+    }, {});
+  }, [buildings, units]);
+
+  const feeCoverageById = useMemo(() => {
+    return fees.reduce<Record<string, FeeCoverageSummary>>((accumulator, fee) => {
+      const applicableUnits = units.filter(unit => {
+        if (!fee.applies_to || fee.applies_to === 'condominium') return true;
+        if (fee.applies_to === 'unit') return fee.target_unit_id === unit.id;
+        if (fee.applies_to === 'building') {
+          return !!fee.target_building_id && !!unitLineageByUnitId[unit.id]?.has(fee.target_building_id);
+        }
+        return false;
+      });
+
+      const feePayments = getFeePayments(fee.id);
+      const amountPerUnit = fee.currency === 'USD' ? Number(fee.amount_original) : Number(fee.amount_ves);
+      const paidAmountByUnitId = feePayments.reduce<Record<string, number>>((unitTotals, payment) => {
+        unitTotals[payment.unit_id] = roundMoney((unitTotals[payment.unit_id] || 0) + getPaymentAmountInFeeCurrency(payment, fee.currency));
+        return unitTotals;
+      }, {});
+
+      const paidUnits = applicableUnits.filter(unit => (paidAmountByUnitId[unit.id] || 0) >= amountPerUnit - 0.01).length;
+      const expectedUnits = applicableUnits.length;
+      const totalPaidAmount = roundMoney(
+        feePayments.reduce((sum, payment) => sum + getPaymentAmountInFeeCurrency(payment, fee.currency), 0),
+      );
+      const totalExpectedAmount = roundMoney(expectedUnits * amountPerUnit);
+      const remainingAmount = roundMoney(Math.max(totalExpectedAmount - totalPaidAmount, 0));
+      const missingUnits = Math.max(expectedUnits - paidUnits, 0);
+
+      accumulator[fee.id] = {
+        expectedUnits,
+        paidUnits,
+        missingUnits,
+        totalPaidAmount,
+        totalExpectedAmount,
+        remainingAmount,
+        isPaid: expectedUnits > 0 && missingUnits === 0 && remainingAmount <= 0.01,
+      };
+
+      return accumulator;
+    }, {});
+  }, [fees, getFeePayments, unitLineageByUnitId, units]);
+
+  const getFeeCoverage = (feeId: string): FeeCoverageSummary => feeCoverageById[feeId] || {
+    expectedUnits: 0,
+    paidUnits: 0,
+    missingUnits: 0,
+    totalPaidAmount: 0,
+    totalExpectedAmount: 0,
+    remainingAmount: 0,
+    isPaid: false,
+  };
 
   const load = async () => {
     setLoading(true);
@@ -267,24 +367,6 @@ export function FeesPage() {
       render: (f: Fee) => getFeeScopeLabel(f),
     },
     {
-      key: 'payments', label: 'Pagos asociados', sortable: false,
-      render: (f: Fee) => {
-        const associatedPayments = getFeePayments(f.id);
-        if (associatedPayments.length === 0) {
-          return <span className="text-gray-400">Sin pagos</span>;
-        }
-
-        return (
-          <div className="flex items-center gap-2">
-            <span className="badge-yellow">{associatedPayments.length} pago(s)</span>
-            <button onClick={() => setPaymentsFee(f)} className="btn-secondary text-xs py-1">
-              Ver pagos
-            </button>
-          </div>
-        );
-      },
-    },
-    {
       key: 'start_date', label: 'Inicio',
       render: (f: Fee) => formatDate(f.start_date),
     },
@@ -293,17 +375,21 @@ export function FeesPage() {
       render: (f: Fee) => formatDate(f.due_date),
     },
     {
-      key: 'created_at', label: 'Registrada',
-      render: (f: Fee) => formatDateTime(f.created_at),
-    },
-    {
       key: 'is_active', label: 'Estado',
-      render: (f: Fee) => (
-        <div className="flex flex-col gap-1">
-          <span className={f.is_active ? 'badge-green' : 'badge-red'}>{f.is_active ? 'Activa' : 'Inactiva'}</span>
-          {feeHasPayments(f.id) && <span className="badge-yellow">Con pagos aplicados</span>}
-        </div>
-      ),
+      render: (f: Fee) => {
+        const coverage = getFeeCoverage(f.id);
+
+        return (
+          <div className="flex flex-col gap-1">
+            <span className={f.is_active ? 'badge-green' : 'badge-red'}>{f.is_active ? 'Activa' : 'Inactiva'}</span>
+            {coverage.isPaid
+              ? <span className="badge-green">Pagada</span>
+              : feeHasPayments(f.id)
+                ? <span className="badge-yellow">Con pagos aplicados</span>
+                : null}
+          </div>
+        );
+      },
     },
     {
       key: 'actions', label: 'Acciones', sortable: false,
@@ -312,6 +398,13 @@ export function FeesPage() {
 
         return (
           <div className="flex gap-2">
+            <button
+              onClick={() => setDetailsFee(f)}
+              className="h-7 w-7 rounded-full border border-gray-300 text-sm font-semibold text-gray-600 transition hover:border-primary-400 hover:text-primary-700"
+              title="Ver detalles"
+            >
+              i
+            </button>
             <button
               onClick={() => openEdit(f)}
               className="btn-secondary text-xs py-1 disabled:opacity-50 disabled:cursor-not-allowed"
@@ -361,7 +454,12 @@ export function FeesPage() {
           data={fees}
           columns={columns}
           loading={loading}
-          rowClassName={(fee: Fee) => feeHasPayments(fee.id) ? 'bg-amber-50' : ''}
+          rowClassName={(fee: Fee) => {
+            const coverage = getFeeCoverage(fee.id);
+            if (coverage.isPaid) return 'bg-emerald-50';
+            if (feeHasPayments(fee.id)) return 'bg-amber-50';
+            return '';
+          }}
         />
       </div>
 
@@ -482,6 +580,94 @@ export function FeesPage() {
         onConfirm={handleDeactivate}
         onCancel={() => setDeactivateTarget(null)}
       />
+
+      <Modal
+        isOpen={!!detailsFee}
+        title={detailsFee ? `Detalle de ${detailsFee.name}` : 'Detalle de cuota'}
+        onClose={() => setDetailsFee(null)}
+        size="lg"
+      >
+        {detailsFee && (() => {
+          const coverage = getFeeCoverage(detailsFee.id);
+          const associatedPayments = getFeePayments(detailsFee.id);
+
+          return (
+            <div className="space-y-5">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div className="rounded-lg border border-gray-200 px-4 py-3">
+                  <p className="text-xs uppercase tracking-wide text-gray-400">Cobertura</p>
+                  <p className="text-lg font-semibold text-gray-900 mt-1">
+                    {coverage.paidUnits}/{coverage.expectedUnits} unidades al día
+                  </p>
+                  <p className="text-sm text-gray-500 mt-1">
+                    {coverage.missingUnits === 0 ? 'Sin unidades pendientes' : `Faltan ${coverage.missingUnits} unidad(es) por cubrir`}
+                  </p>
+                </div>
+                <div className="rounded-lg border border-gray-200 px-4 py-3">
+                  <p className="text-xs uppercase tracking-wide text-gray-400">Monto cubierto</p>
+                  <p className="text-lg font-semibold text-gray-900 mt-1">
+                    {detailsFee.currency === 'USD'
+                      ? `${formatUSD(coverage.totalPaidAmount)} de ${formatUSD(coverage.totalExpectedAmount)}`
+                      : `${formatVES(coverage.totalPaidAmount)} de ${formatVES(coverage.totalExpectedAmount)}`}
+                  </p>
+                  {!coverage.isPaid && coverage.expectedUnits > 0 && coverage.remainingAmount > 0.01 && (
+                    <p className="text-sm text-amber-700 mt-1">
+                      Pendiente {detailsFee.currency === 'USD' ? formatUSD(coverage.remainingAmount) : formatVES(coverage.remainingAmount)}
+                    </p>
+                  )}
+                </div>
+              </div>
+
+              <div className="rounded-lg border border-gray-200 px-4 py-3 space-y-3">
+                <div className="flex items-center justify-between gap-3">
+                  <div>
+                    <p className="text-xs uppercase tracking-wide text-gray-400">Pagos asociados</p>
+                    <p className="text-base font-semibold text-gray-900 mt-1">{associatedPayments.length} pago(s) registrados</p>
+                  </div>
+                  {associatedPayments.length > 0 && (
+                    <button
+                      onClick={() => {
+                        setDetailsFee(null);
+                        setPaymentsFee(detailsFee);
+                      }}
+                      className="btn-secondary text-xs py-1"
+                    >
+                      Ver pagos
+                    </button>
+                  )}
+                </div>
+                {associatedPayments.length === 0 && (
+                  <p className="text-sm text-gray-500">Esta cuota no tiene pagos asociados.</p>
+                )}
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div className="rounded-lg border border-gray-200 px-4 py-3">
+                  <p className="text-xs uppercase tracking-wide text-gray-400">Registrada</p>
+                  <p className="text-sm font-medium text-gray-900 mt-1">{formatDateTime(detailsFee.created_at)}</p>
+                </div>
+                <div className="rounded-lg border border-gray-200 px-4 py-3">
+                  <p className="text-xs uppercase tracking-wide text-gray-400">Estado financiero</p>
+                  <div className="mt-2 flex flex-wrap gap-2">
+                    {coverage.isPaid
+                      ? <span className="badge-green">Pagada</span>
+                      : coverage.expectedUnits > 0 && coverage.remainingAmount > 0.01
+                        ? <span className="badge-yellow">Pendiente</span>
+                        : <span className="badge-blue">Sin cobertura</span>}
+                    {feeHasPayments(detailsFee.id) && !coverage.isPaid && (
+                      <span className="badge-yellow">Con pagos aplicados</span>
+                    )}
+                  </div>
+                </div>
+              </div>
+
+              <div className="flex justify-end">
+                <button type="button" onClick={() => setDetailsFee(null)} className="btn-secondary">Cerrar</button>
+              </div>
+            </div>
+          );
+        })()}
+      </Modal>
 
       <Modal
         isOpen={!!paymentsFee}

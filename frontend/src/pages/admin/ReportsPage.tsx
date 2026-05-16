@@ -6,6 +6,24 @@ import { StatCard } from '../../components/common/StatCard';
 import { formatVES, formatUSD } from '../../utils/currency';
 import type { Payment } from '../../types';
 
+function roundMoney(value: number) {
+  return Number(value.toFixed(2));
+}
+
+function getPaymentUsdAmount(payment: Payment) {
+  if (payment.amount_usd !== null && payment.amount_usd !== undefined) {
+    return Number(payment.amount_usd);
+  }
+
+  if (payment.currency === 'USD') {
+    return Number(payment.amount_original);
+  }
+
+  const exchangeRate = Number(payment.exchange_rate || 0);
+  if (exchangeRate <= 0) return null;
+  return roundMoney(Number(payment.amount_ves) / exchangeRate);
+}
+
 export function AdminReportsPage() {
   const { user } = useAuth();
   const condominiumId = user?.condominium_id || '';
@@ -30,7 +48,7 @@ export function AdminReportsPage() {
     },
     {
       key: 'owner', label: 'Propietario',
-      render: (p: Payment) => p.unit?.owner?.full_name || '—',
+      render: (p: Payment) => p.unit?.owner?.full_name || 'Sin Propietario',
     },
     {
       key: 'fee', label: 'Cuota',
@@ -43,6 +61,13 @@ export function AdminReportsPage() {
     {
       key: 'amount_ves', label: 'En Bs.',
       render: (p: Payment) => formatVES(p.amount_ves),
+    },
+    {
+      key: 'amount_usd', label: 'En $USD',
+      render: (p: Payment) => {
+        const usdAmount = getPaymentUsdAmount(p);
+        return usdAmount === null ? '—' : formatUSD(usdAmount);
+      },
     },
     { key: 'payment_date', label: 'Fecha' },
     { key: 'reference', label: 'Referencia' },
@@ -72,17 +97,17 @@ export function AdminReportsPage() {
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-6 mb-6">
             <StatCard
               label="Total Recaudado (Bs.)"
-              value={formatVES(report.summary?.total_ves || 0)}
+              value={formatVES(report.summary?.total_collected_ves || 0)}
               colorClass="text-green-600"
             />
             <StatCard
               label="Total en USD"
-              value={formatUSD(report.summary?.total_usd || 0)}
+              value={formatUSD(report.summary?.total_collected_usd || 0)}
               colorClass="text-blue-600"
             />
             <StatCard
               label="N° de Pagos"
-              value={report.payments?.length || 0}
+              value={report.summary?.payment_count || 0}
             />
           </div>
           <div className="card">

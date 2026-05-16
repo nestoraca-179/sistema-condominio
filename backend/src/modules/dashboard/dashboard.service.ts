@@ -35,13 +35,24 @@ export class DashboardService {
       (sum, d) => sum + Number(d.original_amount_ves) + Number(d.late_fee_ves) - Number(d.paid_amount_ves),
       0,
     );
+    const totalPaidVes = payments
+      .filter(payment => !payment.is_voided)
+      .reduce((sum, payment) => sum + Number(payment.amount_ves || 0), 0);
+    const totalPaidUsd = payments
+      .filter(payment => !payment.is_voided)
+      .reduce((sum, payment) => sum + Number(payment.amount_usd || 0), 0);
 
     return {
       unit_id: unitId,
       debts,
       payments,
+      pending_total_ves: totalPendingVes,
+      total_paid_ves: totalPaidVes,
+      total_paid_usd: totalPaidUsd,
       summary: {
         total_pending_ves: totalPendingVes,
+        total_paid_ves: totalPaidVes,
+        total_paid_usd: totalPaidUsd,
         pending_items: pendingDebts.length,
         last_payment: payments[0] || null,
       },

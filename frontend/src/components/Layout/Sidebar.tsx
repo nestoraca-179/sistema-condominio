@@ -1,7 +1,10 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { NavLink } from 'react-router-dom';
+import { noticesApi } from '../../api/notices.api';
 import { useAuth } from '../../contexts/AuthContext';
 import type { Role } from '../../types';
+
+const RESIDENT_NOTICES_UPDATED_EVENT = 'resident-notices-updated';
 
 function DashboardIcon({ className = 'h-5 w-5' }: { className?: string }) {
   return (
@@ -150,8 +153,26 @@ const NAV_ITEMS: NavItem[] = [
 export function Sidebar() {
   const { user } = useAuth();
   const [collapsed, setCollapsed] = useState(false);
+  const [unreadNoticeCount, setUnreadNoticeCount] = useState(0);
 
   const items = NAV_ITEMS.filter(item => user && item.roles.includes(user.role));
+
+  useEffect(() => {
+    if (user?.role !== 'resident' || !user.condominium_id) {
+      setUnreadNoticeCount(0);
+      return;
+    }
+
+    const loadUnreadCount = () => {
+      noticesApi.getUnreadCount(user.condominium_id!)
+        .then(response => setUnreadNoticeCount(response.data.count))
+        .catch(() => setUnreadNoticeCount(0));
+    };
+
+    loadUnreadCount();
+    window.addEventListener(RESIDENT_NOTICES_UPDATED_EVENT, loadUnreadCount);
+    return () => window.removeEventListener(RESIDENT_NOTICES_UPDATED_EVENT, loadUnreadCount);
+  }, [user]);
 
   return (
     <aside
@@ -184,7 +205,14 @@ export function Sidebar() {
             }
             title={collapsed ? item.label : undefined}
           >
-            <item.icon className="h-5 w-5 shrink-0" />
+            <div className="relative shrink-0">
+              <item.icon className="h-5 w-5 shrink-0" />
+              {user?.role === 'resident' && item.path === '/residente/comunicados' && unreadNoticeCount > 0 && (
+                <span className="absolute -top-2 -right-2 min-w-[1.1rem] h-[1.1rem] rounded-full bg-red-600 px-1 text-[10px] font-bold text-white flex items-center justify-center">
+                  {unreadNoticeCount > 99 ? '99+' : unreadNoticeCount}
+                </span>
+              )}
+            </div>
             {!collapsed && <span className="truncate">{item.label}</span>}
           </NavLink>
         ))}

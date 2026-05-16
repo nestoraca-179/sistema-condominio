@@ -23,6 +23,7 @@ import { Debt } from './modules/debts/debt.entity';
 import { ExchangeRate } from './modules/exchange-rates/exchange-rate.entity';
 import { Notice } from './modules/notices/notice.entity';
 import { NotificationLog } from './modules/notices/notification-log.entity';
+import { NoticeRead } from './modules/notices/notice-read.entity';
 
 @Module({
   imports: [
@@ -38,7 +39,7 @@ import { NotificationLog } from './modules/notices/notification-log.entity';
         database: config.get('DB_DATABASE', 'sistema_condominio'),
         entities: [
           User, Condominium, Building, Unit, Fee, Payment,
-          Debt, ExchangeRate, Notice, NotificationLog,
+          Debt, ExchangeRate, Notice, NotificationLog, NoticeRead,
         ],
         synchronize: config.get('NODE_ENV') !== 'production',
         logging: config.get('NODE_ENV') === 'development' ? ['error'] : false,

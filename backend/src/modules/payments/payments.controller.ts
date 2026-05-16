@@ -2,6 +2,7 @@ import { Controller, Get, Post, Patch, Body, Param, Query, UseGuards } from '@ne
 import { ApiTags, ApiOperation, ApiBearerAuth, ApiQuery } from '@nestjs/swagger';
 import { PaymentsService } from './payments.service';
 import { CreatePaymentDto } from './dto/create-payment.dto';
+import { VoidPaymentDto } from './dto/void-payment.dto';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { RolesGuard } from '../../common/guards/roles.guard';
 import { Roles } from '../../common/decorators/roles.decorator';
@@ -33,8 +34,8 @@ export class PaymentsController {
   @Patch(':id/void')
   @Roles(Role.ADMIN, Role.ACCOUNTANT, Role.SUPERADMIN)
   @ApiOperation({ summary: 'Anular pago' })
-  voidPayment(@Param('id') id: string, @CurrentUser() user: any) {
-    return this.service.voidPayment(id, user.id);
+  voidPayment(@Param('id') id: string, @Body() dto: VoidPaymentDto, @CurrentUser() user: any) {
+    return this.service.voidPayment(id, user.id, dto.reason);
   }
 
   @Get('resident/:unitId')

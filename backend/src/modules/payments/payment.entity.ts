@@ -65,6 +65,9 @@ export class Payment {
   @Column({ nullable: true })
   voided_by: string | null;
 
+  @Column({ type: 'text', nullable: true })
+  void_reason: string | null;
+
   @ManyToOne('User', { nullable: true, onDelete: 'SET NULL' })
   @JoinColumn({ name: 'voided_by' })
   voidedByUser: any;

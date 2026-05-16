@@ -3,6 +3,7 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { Building } from './building.entity';
 import { Unit } from './unit.entity';
+import { Payment } from '../payments/payment.entity';
 import { CreateBuildingDto } from './dto/create-building.dto';
 import { CreateUnitDto } from './dto/create-unit.dto';
 
@@ -11,6 +12,7 @@ export class BuildingsService {
   constructor(
     @InjectRepository(Building) private buildingRepo: Repository<Building>,
     @InjectRepository(Unit) private unitRepo: Repository<Unit>,
+    @InjectRepository(Payment) private paymentRepo: Repository<Payment>,
   ) {}
 
   async getSectors(condominiumId: string) {
@@ -63,6 +65,16 @@ export class BuildingsService {
     return qb.getMany();
   }
 
+  async getUnitsByOwner(ownerId: string) {
+    return this.unitRepo.createQueryBuilder('unit')
+      .leftJoinAndSelect('unit.building', 'building')
+      .leftJoinAndSelect('unit.owner', 'owner')
+      .where('unit.owner_id = :ownerId', { ownerId })
+      .orderBy('building.name', 'ASC')
+      .addOrderBy('unit.unit_number', 'ASC')
+      .getMany();
+  }
+
   async findUnit(id: string) {
     const unit = await this.unitRepo.findOne({
       where: { id },
@@ -87,6 +99,12 @@ export class BuildingsService {
   async deleteUnit(id: string) {
     const unit = await this.unitRepo.findOne({ where: { id } });
     if (!unit) throw new NotFoundException('Unidad no encontrada');
+
+    const paymentsCount = await this.paymentRepo.count({ where: { unit_id: id } });
+    if (paymentsCount > 0) {
+      throw new BadRequestException('No se puede eliminar la unidad porque tiene pagos registrados');
+    }
+
     await this.unitRepo.remove(unit);
     return { success: true };
   }

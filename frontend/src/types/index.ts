@@ -93,6 +93,9 @@ export interface Payment {
   created_at: string;
   is_voided: boolean;
   voided_at?: string | null;
+  voided_by?: string | null;
+  voidedByUser?: User;
+  void_reason?: string | null;
 }
 
 export interface Debt {
@@ -128,6 +131,7 @@ export interface Notice {
   sent_by_email: boolean;
   sentByUser?: User;
   created_at: string;
+  is_read?: boolean;
 }
 
 export interface AuthResponse {

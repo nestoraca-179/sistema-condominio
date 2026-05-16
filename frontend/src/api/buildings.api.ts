@@ -11,6 +11,7 @@ export const buildingsApi = {
   deleteBuilding: (id: string) => api.delete(`/buildings/sectors/${id}`),
   getUnits: (condominiumId?: string, buildingId?: string) =>
     api.get<Unit[]>('/buildings/units', { params: { condominiumId, buildingId } }),
+  getMyUnits: () => api.get<Unit[]>('/buildings/my-units'),
   getUnit: (id: string) => api.get<Unit>(`/buildings/units/${id}`),
   createUnit: (data: Partial<Unit>) => api.post<Unit>('/buildings/units', data),
   updateUnit: (id: string, data: Partial<Unit>) =>

@@ -143,18 +143,21 @@ export class PaymentsService {
   async findByResident(unitId: string) {
     return this.repo.find({
       where: { unit_id: unitId },
-      relations: ['fee', 'unit', 'unit.owner'],
+      relations: ['fee', 'unit', 'unit.owner', 'voidedByUser'],
       order: { payment_date: 'DESC' },
     });
   }
 
-  async voidPayment(id: string, userId: string) {
+  async voidPayment(id: string, userId: string, reason: string) {
     const payment = await this.repo.findOne({ where: { id } });
     if (!payment) throw new NotFoundException('Pago no encontrado');
     if (payment.is_voided) throw new BadRequestException('El pago ya fue anulado');
+    const trimmedReason = reason?.trim();
+    if (!trimmedReason) throw new BadRequestException('Debe indicar el motivo de la anulación');
     payment.is_voided = true;
     payment.voided_at = new Date();
     payment.voided_by = userId;
+    payment.void_reason = trimmedReason;
     return this.repo.save(payment);
   }
 
@@ -165,7 +168,9 @@ export class PaymentsService {
       .leftJoinAndSelect('unit.owner', 'owner')
       .leftJoinAndSelect('payment.fee', 'fee')
       .leftJoinAndSelect('payment.registeredByUser', 'registeredBy')
-      .orderBy('payment.payment_date', 'DESC');
+      .leftJoinAndSelect('payment.voidedByUser', 'voidedByUser')
+      .orderBy('payment.payment_date', 'DESC')
+      .addOrderBy('payment.created_at', 'DESC');
 
     if (condominiumId) {
       qb.where('building.condominium_id = :condominiumId', { condominiumId });

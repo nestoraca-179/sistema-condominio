@@ -1,4 +1,4 @@
-import { Controller, Get, Post, Body, Param, Query, UseGuards } from '@nestjs/common';
+import { Controller, Get, Post, Body, Param, Patch, Query, UseGuards } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiBearerAuth, ApiQuery } from '@nestjs/swagger';
 import { NoticesService } from './notices.service';
 import { CreateNoticeDto } from './dto/create-notice.dto';
@@ -18,13 +18,35 @@ export class NoticesController {
   @Get()
   @ApiOperation({ summary: 'Ver comunicados (CU-16)' })
   @ApiQuery({ name: 'condominiumId', required: true })
-  findAll(@Query('condominiumId') condominiumId: string) {
-    return this.service.findAll(condominiumId);
+  findAll(
+    @Query('condominiumId') condominiumId: string,
+    @CurrentUser() user: any,
+  ) {
+    return this.service.findAll(condominiumId, user);
+  }
+
+  @Get('unread-count')
+  @ApiOperation({ summary: 'Contar comunicados no leídos del usuario actual' })
+  @ApiQuery({ name: 'condominiumId', required: true })
+  getUnreadCount(
+    @Query('condominiumId') condominiumId: string,
+    @CurrentUser() user: any,
+  ) {
+    return this.service.getUnreadCount(condominiumId, user);
   }
 
   @Get(':id')
   findOne(@Param('id') id: string) {
     return this.service.findOne(id);
+  }
+
+  @Patch(':id/read')
+  @ApiOperation({ summary: 'Marcar comunicado como leído' })
+  markAsRead(
+    @Param('id') id: string,
+    @CurrentUser() user: any,
+  ) {
+    return this.service.markAsRead(id, user);
   }
 
   @Post()

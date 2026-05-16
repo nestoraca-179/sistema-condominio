@@ -5,6 +5,8 @@ interface Column<T> {
   label: string;
   render?: (row: T) => React.ReactNode;
   sortable?: boolean;
+  headerClassName?: string;
+  cellClassName?: string;
 }
 
 interface DataTableProps<T> {
@@ -87,7 +89,7 @@ export function DataTable<T extends { id?: string }>({
                 <th
                   key={String(col.key)}
                   onClick={() => col.sortable !== false && handleSort(String(col.key))}
-                  className={`px-4 py-3 text-left font-medium text-gray-600 whitespace-nowrap ${
+                  className={`px-4 py-3 text-left font-medium text-gray-600 whitespace-nowrap ${col.headerClassName || ''} ${
                     col.sortable !== false ? 'cursor-pointer hover:bg-gray-100 select-none' : ''
                   }`}
                 >
@@ -110,7 +112,7 @@ export function DataTable<T extends { id?: string }>({
               paged.map((row, i) => (
                 <tr key={(row as Record<string, unknown>).id as string ?? i} className={`hover:bg-gray-50 ${rowClassName ? rowClassName(row) : ''}`}>
                   {columns.map(col => (
-                    <td key={String(col.key)} className="px-4 py-3 text-gray-700">
+                    <td key={String(col.key)} className={`px-4 py-3 text-gray-700 ${col.cellClassName || ''}`}>
                       {col.render
                         ? col.render(row)
                         : String((row as Record<string, unknown>)[String(col.key)] ?? '')}

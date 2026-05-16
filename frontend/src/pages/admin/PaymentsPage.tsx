@@ -8,7 +8,6 @@ import { exchangeRatesApi } from '../../api/exchangeRates.api';
 import { useAuth } from '../../contexts/AuthContext';
 import { DataTable } from '../../components/common/DataTable';
 import { Modal } from '../../components/common/Modal';
-import { ConfirmModal } from '../../components/common/ConfirmModal';
 import { formatVES, formatUSD } from '../../utils/currency';
 import type { Payment, Unit, Fee, ExchangeRate, Building } from '../../types';
 
@@ -38,6 +37,11 @@ function getPaymentUsdAmount(payment: Payment) {
   return roundMoney(Number(payment.amount_ves) / exchangeRate);
 }
 
+function formatDateTime(value?: string | null) {
+  if (!value) return 'No disponible';
+  return new Date(value).toLocaleString('es-VE');
+}
+
 export function PaymentsPage() {
   const { user } = useAuth();
   const condominiumId = user?.condominium_id || '';
@@ -51,7 +55,10 @@ export function PaymentsPage() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [showModal, setShowModal] = useState(false);
+  const [noteTarget, setNoteTarget] = useState<Payment | null>(null);
   const [voidTarget, setVoidTarget] = useState<Payment | null>(null);
+  const [voidInfoTarget, setVoidInfoTarget] = useState<Payment | null>(null);
+  const [voidReason, setVoidReason] = useState('');
   const [voiding, setVoiding] = useState(false);
 
   const today = getTodayDateString();
@@ -261,10 +268,21 @@ export function PaymentsPage() {
     setShowModal(true);
   };
 
+  const openVoidModal = (payment: Payment) => {
+    setVoidTarget(payment);
+    setVoidReason('');
+  };
+
+  const closeVoidModal = () => {
+    if (voiding) return;
+    setVoidTarget(null);
+    setVoidReason('');
+  };
+
   const columns = [
     {
       key: 'unit', label: 'Unidad',
-      render: (p: Payment) => `${p.unit?.unit_number || '—'} — ${p.unit?.owner?.full_name || ''}`,
+      render: (p: Payment) => `${p.unit?.unit_number || '—'} — ${p.unit?.owner?.full_name || 'Sin propietario'}`,
     },
     {
       key: 'fee', label: 'Cuota',
@@ -294,10 +312,46 @@ export function PaymentsPage() {
         : <span className="badge-green">Válido</span>,
     },
     {
-      key: 'actions', label: 'Acciones', sortable: false,
-      render: (p: Payment) => !p.is_voided ? (
-        <button onClick={() => setVoidTarget(p)} className="btn-danger text-xs py-1">Anular</button>
+      key: 'notes', label: 'Nota', sortable: false,
+      render: (p: Payment) => p.notes ? (
+        <button
+          type="button"
+          onClick={() => setNoteTarget(p)}
+          className="inline-flex h-8 w-8 items-center justify-center rounded-full border border-gray-300 text-gray-600 transition hover:border-primary-400 hover:text-primary-700"
+          title="Ver nota"
+        >
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" className="h-4 w-4">
+            <path d="M7 4h8l5 5v11a1 1 0 0 1-1 1H7a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2Z" />
+            <path d="M15 4v5h5" />
+            <path d="M9 13h6" />
+            <path d="M9 17h4" />
+          </svg>
+        </button>
       ) : null,
+    },
+    {
+      key: 'actions', label: 'Acciones', sortable: false, headerClassName: 'text-center', cellClassName: 'text-center',
+      render: (p: Payment) => (
+        <div className="flex items-center justify-center gap-2">
+          {!p.is_voided && (
+            <button onClick={() => openVoidModal(p)} className="btn-danger text-xs py-1">Anular</button>
+          )}
+          {p.is_voided && (
+            <button
+              type="button"
+              onClick={() => setVoidInfoTarget(p)}
+              className="inline-flex h-8 w-8 items-center justify-center rounded-full border border-gray-300 text-gray-600 transition hover:border-primary-400 hover:text-primary-700"
+              title="Ver información de anulación"
+            >
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" className="h-4 w-4">
+                <circle cx="12" cy="12" r="9" />
+                <path d="M12 10v6" />
+                <path d="M12 7.5h.01" />
+              </svg>
+            </button>
+          )}
+        </div>
+      ),
     },
   ];
 
@@ -422,27 +476,102 @@ export function PaymentsPage() {
           </div>
         </form>
       </Modal>
-      <ConfirmModal
-        isOpen={!!voidTarget}
-        title="Anular Pago"
-        message={`¿Está seguro que desea anular el pago${voidTarget?.reference ? ` N° ${voidTarget.reference}` : ''} de ${voidTarget?.unit?.unit_number ?? ''}? Esta acción no se puede revertir.`}
-        confirmLabel="Anular"
-        isDestructive
-        isLoading={voiding}
-        loadingMessage="Anulando pago, por favor espere..."
-        onConfirm={async () => {
-          if (!voidTarget) return;
-          setVoiding(true);
-          try {
-            await paymentsApi.voidPayment(voidTarget.id);
-            toast.success('Pago anulado');
-            setVoidTarget(null);
-            load();
-          } catch (err: any) { toast.error(err.response?.data?.message || 'Error'); }
-          finally { setVoiding(false); }
-        }}
-        onCancel={() => setVoidTarget(null)}
-      />
+
+      {noteTarget && (
+        <Modal
+          isOpen={true}
+          title={`Nota del pago${noteTarget.reference ? ` ${noteTarget.reference}` : ''}`}
+          onClose={() => setNoteTarget(null)}
+        >
+          <p className="text-gray-700 whitespace-pre-wrap">{noteTarget.notes}</p>
+          <div className="flex justify-end mt-6">
+            <button type="button" onClick={() => setNoteTarget(null)} className="btn-secondary">Cerrar</button>
+          </div>
+        </Modal>
+      )}
+
+      {voidInfoTarget && (
+        <Modal
+          isOpen={true}
+          title="Información de anulación"
+          onClose={() => setVoidInfoTarget(null)}
+        >
+          <div className="space-y-4 text-sm text-gray-700">
+            <div>
+              <p className="font-medium text-gray-900">Anulado por</p>
+              <p>{voidInfoTarget.voidedByUser?.full_name || voidInfoTarget.voidedByUser?.username || 'No disponible'}</p>
+            </div>
+            <div>
+              <p className="font-medium text-gray-900">Fecha y hora</p>
+              <p>{formatDateTime(voidInfoTarget.voided_at)}</p>
+            </div>
+            <div>
+              <p className="font-medium text-gray-900">Motivo</p>
+              <p className="whitespace-pre-wrap">{voidInfoTarget.void_reason || 'No disponible'}</p>
+            </div>
+            <div className="flex justify-end">
+              <button type="button" onClick={() => setVoidInfoTarget(null)} className="btn-secondary">Cerrar</button>
+            </div>
+          </div>
+        </Modal>
+      )}
+
+      {voidTarget && (
+        <Modal isOpen={true} title="Anular Pago" onClose={closeVoidModal}>
+          <div className="space-y-4">
+            <p className="text-sm text-gray-700">
+              {`Va a anular el pago${voidTarget.reference ? ` N° ${voidTarget.reference}` : ''} de ${voidTarget.unit?.unit_number ?? ''}. Esta acción no se puede revertir.`}
+            </p>
+            <div>
+              <label className="label">Motivo de anulación <span className="text-red-500">*</span></label>
+              <textarea
+                value={voidReason}
+                onChange={(event) => setVoidReason(event.target.value)}
+                className="input"
+                rows={4}
+                placeholder="Explique por qué se anula este pago"
+                disabled={voiding}
+              />
+            </div>
+            <p className="text-xs text-gray-400"><span className="text-red-500">*</span> Requerido</p>
+            {voiding && <p className="text-sm text-primary-700">Anulando pago, por favor espere...</p>}
+            <div className="flex justify-end gap-3">
+              <button
+                type="button"
+                onClick={closeVoidModal}
+                className="btn-secondary disabled:opacity-70 disabled:cursor-not-allowed"
+                disabled={voiding}
+              >
+                Cancelar
+              </button>
+              <button
+                type="button"
+                onClick={async () => {
+                  if (!voidTarget || !voidReason.trim()) {
+                    toast.error('Debe indicar el motivo de la anulación');
+                    return;
+                  }
+                  setVoiding(true);
+                  try {
+                    await paymentsApi.voidPayment(voidTarget.id, voidReason.trim());
+                    toast.success('Pago anulado');
+                    closeVoidModal();
+                    load();
+                  } catch (err: any) {
+                    toast.error(err.response?.data?.message || 'Error');
+                  } finally {
+                    setVoiding(false);
+                  }
+                }}
+                className="btn-danger disabled:opacity-70 disabled:cursor-not-allowed"
+                disabled={voiding || !voidReason.trim()}
+              >
+                {voiding ? 'Anulando...' : 'Anular'}
+              </button>
+            </div>
+          </div>
+        </Modal>
+      )}
     </div>
   );
 }

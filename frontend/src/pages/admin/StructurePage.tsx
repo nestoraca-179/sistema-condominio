@@ -2,12 +2,13 @@ import React, { useEffect, useState } from 'react';
 import toast from 'react-hot-toast';
 import { useForm } from 'react-hook-form';
 import { buildingsApi } from '../../api/buildings.api';
+import { paymentsApi } from '../../api/payments.api';
 import { usersApi } from '../../api/users.api';
 import { useAuth } from '../../contexts/AuthContext';
 import { ConfirmModal } from '../../components/common/ConfirmModal';
 import { Modal } from '../../components/common/Modal';
 import { DataTable } from '../../components/common/DataTable';
-import type { Building, Unit, User } from '../../types';
+import type { Building, Payment, Unit, User } from '../../types';
 
 const TYPE_LABELS: Record<string, string> = {
   sector: 'Sector',
@@ -34,6 +35,17 @@ interface UnitFormValues {
 }
 
 const unitNumberCollator = new Intl.Collator('es', { numeric: true, sensitivity: 'base' });
+
+function toastWarning(message: string) {
+  toast(message, {
+    icon: '⚠️',
+    style: {
+      border: '1px solid #f59e0b',
+      background: '#fffbeb',
+      color: '#92400e',
+    },
+  });
+}
 
 function buildTree(flat: Building[]): BuildingNode[] {
   const map = new Map<string, BuildingNode>();
@@ -105,6 +117,7 @@ export function StructurePage() {
 
   const [buildings, setBuildings] = useState<Building[]>([]);
   const [units, setUnits] = useState<Unit[]>([]);
+  const [payments, setPayments] = useState<Payment[]>([]);
   const [residents, setResidents] = useState<User[]>([]);
   const [loading, setLoading] = useState(true);
   const [showBuildingModal, setShowBuildingModal] = useState(false);
@@ -129,13 +142,15 @@ export function StructurePage() {
 
     setLoading(true);
     try {
-      const [b, u, r] = await Promise.all([
+      const [b, u, p, r] = await Promise.all([
         buildingsApi.getSectors(condominiumId),
         buildingsApi.getUnits(condominiumId),
+        paymentsApi.getAll(condominiumId),
         usersApi.getAll(condominiumId),
       ]);
       setBuildings(b.data);
       setUnits(u.data);
+      setPayments(p.data);
       setResidents(r.data.filter(u => u.role === 'resident'));
     } finally {
       setLoading(false);
@@ -253,6 +268,35 @@ export function StructurePage() {
     }
   };
 
+  const hasRegisteredPayments = (unitId: string) =>
+    payments.some(payment => payment.unit_id === unitId);
+
+  const requestDeleteBuilding = (building: Building) => {
+    const childBuildings = buildings.filter(item => item.parent_id === building.id);
+    if (childBuildings.length > 0) {
+      const childLabel = building.type === 'sector' ? 'edificios o torres relacionados' : 'elementos asociados';
+      toastWarning(`No se puede eliminar ${TYPE_LABELS[building.type].toLowerCase()} porque tiene ${childLabel}`);
+      return;
+    }
+
+    const relatedUnits = units.filter(unit => unit.building_id === building.id);
+    if (relatedUnits.length > 0) {
+      toastWarning(`No se puede eliminar ${TYPE_LABELS[building.type].toLowerCase()} porque tiene unidades habitacionales relacionadas`);
+      return;
+    }
+
+    setBuildingToDelete(building);
+  };
+
+  const requestDeleteUnit = (unit: Unit) => {
+    if (hasRegisteredPayments(unit.id)) {
+      toastWarning('No se puede eliminar la unidad porque ya tiene pagos registrados');
+      return;
+    }
+
+    setUnitToDelete(unit);
+  };
+
   const excludedParentIds = editingBuilding
     ? new Set([editingBuilding.id, ...getDescendantIds(buildings, editingBuilding.id)])
     : new Set<string>();
@@ -287,7 +331,7 @@ export function StructurePage() {
       render: (u: Unit) => (
         <div className="flex gap-2">
           <button onClick={() => openEditUnit(u)} className="btn-secondary text-xs py-1">Editar</button>
-          <button onClick={() => setUnitToDelete(u)} className="btn-danger text-xs py-1">Eliminar</button>
+          <button onClick={() => requestDeleteUnit(u)} className="btn-danger text-xs py-1">Eliminar</button>
         </div>
       ),
     },
@@ -323,7 +367,7 @@ export function StructurePage() {
             {buildings.length === 0
               ? <li className="text-gray-400 text-center py-4">Sin registros</li>
               : buildTree(buildings).map(root => (
-                  <BuildingTreeNode key={root.id} node={root} onEdit={openEditBuilding} onDelete={setBuildingToDelete} />
+                  <BuildingTreeNode key={root.id} node={root} onEdit={openEditBuilding} onDelete={requestDeleteBuilding} />
                 ))
             }
           </ul>

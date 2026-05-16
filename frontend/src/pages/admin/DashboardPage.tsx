@@ -12,13 +12,19 @@ function formatDashboardValue(value: number | null | undefined): number | string
 export function AdminDashboard() {
   const { user } = useAuth();
   const [summary, setSummary] = useState<any>(null);
+  const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     if (user?.condominium_id) {
+      setLoading(true);
       dashboardApi.getAdminSummary(user.condominium_id)
         .then(r => setSummary(r.data))
-        .catch(() => {});
+        .catch(() => {})
+        .finally(() => setLoading(false));
+      return;
     }
+
+    setLoading(false);
   }, [user]);
 
   return (
@@ -28,21 +34,25 @@ export function AdminDashboard() {
         <StatCard
           label="Unidades Habitacionales"
           value={formatDashboardValue(summary?.total_units)}
+          loading={loading}
         />
         <StatCard
           label="Cuotas Activas"
           value={formatDashboardValue(summary?.active_fees)}
           colorClass="text-blue-600"
+          loading={loading}
         />
         <StatCard
           label="Recaudado este Mes"
           value={formatVES(Number(summary?.month_collected_ves ?? 0))}
           colorClass="text-green-600"
+          loading={loading}
         />
         <StatCard
           label="Pagos este Mes"
           value={formatDashboardValue(summary?.month_payment_count)}
           colorClass="text-purple-600"
+          loading={loading}
         />
       </div>
     </div>

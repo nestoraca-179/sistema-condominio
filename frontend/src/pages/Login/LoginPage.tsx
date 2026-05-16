@@ -13,22 +13,36 @@ const schema = z.object({
 
 type FormData = z.infer<typeof schema>;
 
+function getLoginErrorMessage(err: any) {
+  const message = err?.response?.data?.message;
+  if (Array.isArray(message)) return message.join(', ');
+  if (typeof message === 'string' && message.trim()) return message;
+  return 'Credenciales inválidas';
+}
+
 export function LoginPage() {
   const { login } = useAuth();
   const navigate = useNavigate();
   const [isLoading, setIsLoading] = useState(false);
+  const [loginError, setLoginError] = useState<string | null>(null);
 
   const { register, handleSubmit, formState: { errors } } = useForm<FormData>({
     resolver: zodResolver(schema),
   });
 
+  const usernameField = register('username');
+  const passwordField = register('password');
+
   const onSubmit = async (data: FormData) => {
     setIsLoading(true);
+    setLoginError(null);
     try {
       await login(data.username, data.password);
       navigate('/');
     } catch (err: any) {
-      toast.error(err.response?.data?.message || 'Credenciales inválidas');
+      const message = getLoginErrorMessage(err);
+      setLoginError(message);
+      toast.error(message);
     } finally {
       setIsLoading(false);
     }
@@ -44,14 +58,24 @@ export function LoginPage() {
         </div>
 
         <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
+          {loginError && (
+            <div className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+              {loginError}
+            </div>
+          )}
+
           <div>
             <label className="label">Nombre de usuario</label>
             <input
-              {...register('username')}
+              {...usernameField}
               type="text"
               className="input"
               placeholder="admin"
               autoComplete="username"
+              onChange={(event) => {
+                usernameField.onChange(event);
+                if (loginError) setLoginError(null);
+              }}
             />
             {errors.username && <p className="text-red-500 text-xs mt-1">{errors.username.message}</p>}
           </div>
@@ -59,11 +83,15 @@ export function LoginPage() {
           <div>
             <label className="label">Contraseña</label>
             <input
-              {...register('password')}
+              {...passwordField}
               type="password"
               className="input"
               placeholder="••••••••"
               autoComplete="current-password"
+              onChange={(event) => {
+                passwordField.onChange(event);
+                if (loginError) setLoginError(null);
+              }}
             />
             {errors.password && <p className="text-red-500 text-xs mt-1">{errors.password.message}</p>}
           </div>

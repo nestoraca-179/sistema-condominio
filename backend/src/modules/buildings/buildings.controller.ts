@@ -9,6 +9,7 @@ import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { RolesGuard } from '../../common/guards/roles.guard';
 import { Roles } from '../../common/decorators/roles.decorator';
 import { Role } from '../../common/enums/roles.enum';
+import { CurrentUser } from '../../common/decorators/current-user.decorator';
 
 @ApiTags('Buildings')
 @ApiBearerAuth()
@@ -54,6 +55,13 @@ export class BuildingsController {
     @Query('buildingId') buildingId?: string,
   ) {
     return this.service.getUnits(condominiumId, buildingId);
+  }
+
+  @Get('my-units')
+  @Roles(Role.RESIDENT)
+  @ApiOperation({ summary: 'Listar unidades asociadas al residente autenticado' })
+  getMyUnits(@CurrentUser() user: any) {
+    return this.service.getUnitsByOwner(user.id);
   }
 
   @Get('units/:id')

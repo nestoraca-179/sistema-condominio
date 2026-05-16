@@ -15,11 +15,26 @@ export class ReportsService {
     @InjectRepository(Fee) private feeRepo: Repository<Fee>,
   ) {}
 
+  private getPaymentUsdAmount(payment: Payment) {
+    if (payment.amount_usd !== null && payment.amount_usd !== undefined) {
+      return Number(payment.amount_usd);
+    }
+
+    if (payment.currency === 'USD') {
+      return Number(payment.amount_original);
+    }
+
+    const exchangeRate = Number(payment.exchange_rate || 0);
+    if (exchangeRate <= 0) return 0;
+    return Number((Number(payment.amount_ves) / exchangeRate).toFixed(2));
+  }
+
   async getFinancialReport(condominiumId: string, startDate: string, endDate: string) {
     const payments = await this.paymentRepo
       .createQueryBuilder('payment')
       .leftJoinAndSelect('payment.unit', 'unit')
       .leftJoinAndSelect('unit.building', 'building')
+      .leftJoinAndSelect('unit.owner', 'owner')
       .leftJoinAndSelect('payment.fee', 'fee')
       .where('building.condominium_id = :condominiumId', { condominiumId })
       .andWhere('payment.payment_date BETWEEN :startDate AND :endDate', { startDate, endDate })
@@ -27,7 +42,7 @@ export class ReportsService {
       .getMany();
 
     const totalVes = payments.reduce((sum, p) => sum + Number(p.amount_ves), 0);
-    const totalUsd = payments.reduce((sum, p) => sum + Number(p.amount_original), 0);
+    const totalUsd = payments.reduce((sum, p) => sum + this.getPaymentUsdAmount(p), 0);
 
     const pendingDebts = await this.debtRepo
       .createQueryBuilder('debt')
@@ -76,7 +91,7 @@ export class ReportsService {
       const key = p.unit?.unit_number || p.unit_id;
       if (!acc[key]) acc[key] = { unit: p.unit, total_ves: 0, total_usd: 0, payments: [] };
       acc[key].total_ves += Number(p.amount_ves);
-      acc[key].total_usd += Number(p.amount_original);
+      acc[key].total_usd += this.getPaymentUsdAmount(p);
       acc[key].payments.push(p);
       return acc;
     }, {} as Record<string, any>);
@@ -86,6 +101,7 @@ export class ReportsService {
       month,
       by_unit: Object.values(byUnit),
       grand_total_ves: payments.reduce((s, p) => s + Number(p.amount_ves), 0),
+      grand_total_usd: payments.reduce((s, p) => s + this.getPaymentUsdAmount(p), 0),
     };
   }
 }
