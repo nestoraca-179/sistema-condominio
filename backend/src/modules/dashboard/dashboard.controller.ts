@@ -28,4 +28,20 @@ export class DashboardController {
   getAdminSummary(@Query('condominiumId') condominiumId: string) {
     return this.service.getAdminSummary(condominiumId);
   }
+
+  @Get('admin-dashboard')
+  @Roles(Role.ADMIN, Role.SUPERADMIN)
+  @ApiOperation({ summary: 'Datos graficos para panel administrador' })
+  @ApiQuery({ name: 'condominiumId', required: true })
+  getAdminDashboard(@Query('condominiumId') condominiumId: string) {
+    return this.service.getAdminDashboard(condominiumId);
+  }
+
+  @Get('accountant-dashboard')
+  @Roles(Role.ACCOUNTANT, Role.SUPERADMIN)
+  @ApiOperation({ summary: 'Datos graficos para panel contador' })
+  @ApiQuery({ name: 'condominiumId', required: true })
+  getAccountantDashboard(@Query('condominiumId') condominiumId: string) {
+    return this.service.getAccountantDashboard(condominiumId);
+  }
 }

@@ -75,6 +75,8 @@ export class ReportsService {
       .createQueryBuilder('payment')
       .leftJoinAndSelect('payment.unit', 'unit')
       .leftJoinAndSelect('unit.building', 'building')
+      .leftJoinAndSelect('building.parent', 'buildingParent')
+      .leftJoinAndSelect('buildingParent.parent', 'buildingGrandparent')
       .leftJoinAndSelect('unit.owner', 'owner')
       .leftJoinAndSelect('payment.fee', 'fee')
       .where('building.condominium_id = :condominiumId', { condominiumId })
