@@ -2,7 +2,6 @@ import React, { useEffect, useState } from 'react';
 import toast from 'react-hot-toast';
 import { useForm } from 'react-hook-form';
 import { exchangeRatesApi } from '../../api/exchangeRates.api';
-import { useAuth } from '../../contexts/AuthContext';
 import { StatCard } from '../../components/common/StatCard';
 import { DataTable } from '../../components/common/DataTable';
 import { Modal } from '../../components/common/Modal';
@@ -30,7 +29,20 @@ export function ExchangeRatesPage() {
   const [showModal, setShowModal] = useState(false);
 
   const today = getTodayDateString();
-  const { register, handleSubmit, reset, formState: { errors } } = useForm<ExchangeRateFormValues>();
+  const defaultFormValues: ExchangeRateFormValues = { rate: '', effective_date: today };
+  const { register, handleSubmit, reset, formState: { errors } } = useForm<ExchangeRateFormValues>({
+    defaultValues: defaultFormValues,
+  });
+
+  const openModal = () => {
+    reset(defaultFormValues);
+    setShowModal(true);
+  };
+
+  const closeModal = () => {
+    setShowModal(false);
+    reset(defaultFormValues);
+  };
 
   const load = async () => {
     setLoading(true);
@@ -65,8 +77,7 @@ export function ExchangeRatesPage() {
     try {
       await exchangeRatesApi.create({ ...data, rate: parsedRate });
       toast.success('Tasa registrada');
-      setShowModal(false);
-      reset({ rate: '', effective_date: '' });
+      closeModal();
       load();
     } catch (err: any) { toast.error(err.response?.data?.message || 'Error'); }
     finally { setSaving(false); }
@@ -88,7 +99,7 @@ export function ExchangeRatesPage() {
     <div>
       <div className="flex items-center justify-between mb-6">
         <h1 className="text-2xl font-bold text-gray-900">Tasa de Cambio (CU-16)</h1>
-        <button onClick={() => { reset({}); setShowModal(true); }} className="btn-primary">+ Registrar Tasa</button>
+        <button onClick={openModal} className="btn-primary">+ Registrar Tasa</button>
       </div>
 
       {latest && (
@@ -110,7 +121,7 @@ export function ExchangeRatesPage() {
         <DataTable data={history} columns={columns} loading={loading} />
       </div>
 
-      <Modal isOpen={showModal} title="Registrar Nueva Tasa" onClose={() => setShowModal(false)}>
+      <Modal isOpen={showModal} title="Registrar Nueva Tasa" onClose={closeModal}>
         <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
           <div>
             <label className="label">Tasa (Bs. por 1 USD) <span className="text-red-500">*</span></label>
@@ -149,7 +160,7 @@ export function ExchangeRatesPage() {
           <p className="text-xs text-gray-400"><span className="text-red-500">*</span> Requerido</p>
           {saving && <p className="text-sm text-primary-700">Procesando información, por favor espere...</p>}
           <div className="flex justify-end gap-3">
-            <button type="button" onClick={() => setShowModal(false)} className="btn-secondary disabled:opacity-70 disabled:cursor-not-allowed" disabled={saving}>Cancelar</button>
+            <button type="button" onClick={closeModal} className="btn-secondary disabled:opacity-70 disabled:cursor-not-allowed" disabled={saving}>Cancelar</button>
             <button type="submit" className="btn-primary disabled:opacity-70 disabled:cursor-not-allowed" disabled={saving}>{saving ? 'Guardando...' : 'Registrar'}</button>
           </div>
         </form>

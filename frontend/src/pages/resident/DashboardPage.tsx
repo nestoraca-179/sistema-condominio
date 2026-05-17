@@ -99,6 +99,11 @@ export function ResidentDashboard() {
   const outstandingDebts = (statement?.debts || []).filter((debt: Debt) => getOutstandingAmount(debt) > 0.01);
   const overdueDebts = outstandingDebts.filter((debt: Debt) => debt.due_date < today);
   const currentDebts = outstandingDebts.filter((debt: Debt) => debt.due_date >= today);
+  const sortedPayments = [...(statement?.payments || [])].sort((left: Payment, right: Payment) => {
+    const leftTime = new Date(left.created_at || left.payment_date).getTime();
+    const rightTime = new Date(right.created_at || right.payment_date).getTime();
+    return rightTime - leftTime;
+  });
   const validPayments = (statement?.payments || []).filter((payment: Payment) => isApprovedPayment(payment));
   const totalPaidVes = validPayments.reduce(
     (sum: number, payment: Payment) => sum + Number(payment.amount_ves || 0),
@@ -125,7 +130,7 @@ export function ResidentDashboard() {
       {loadingUnits && <div className="text-gray-400 text-center py-10">Cargando...</div>}
       {!loadingUnits && units.length > 0 && (
         <div className="card mb-6">
-          <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
+          <div className="flex flex-col gap-4 sm:flex-row sm:items-top sm:justify-between">
             <div>
               <h2 className="font-semibold text-gray-700">Unidades Asociadas</h2>
               <p className="text-sm text-gray-500 mt-1">Seleccione la unidad que desea consultar.</p>
@@ -177,18 +182,19 @@ export function ResidentDashboard() {
             <StatCard
               label="Saldo Pendiente ($)"
               value={formatUSD(pendingTotalUsd)}
-              colorClass={pendingTotalUsd > 0 ? 'text-amber-600' : 'text-green-600'}
+              colorClass={pendingTotalUsd > 0 ? 'text-amber-600' : 'text-blue-600'}
               loading={loadingStatement}
             />
             <StatCard
               label="Deudas Pendientes"
               value={Number(statement?.summary?.current_items ?? currentDebts.length)}
+              colorClass={pendingTotalVes > 0 ? 'text-red-600' : 'text-green-600'}
               loading={loadingStatement}
             />
             <StatCard
               label="Cuotas en Mora"
               value={Number(statement?.summary?.overdue_items ?? overdueDebts.length)}
-              colorClass={(Number(statement?.summary?.overdue_items ?? overdueDebts.length) > 0) ? 'text-red-600' : 'text-green-600'}
+              colorClass={(Number(statement?.summary?.overdue_items ?? overdueDebts.length) > 0) ? 'text-amber-600' : 'text-blue-600'}
               loading={loadingStatement}
             />
             <StatCard
@@ -219,7 +225,7 @@ export function ResidentDashboard() {
               </div>
               <div className="card">
                 <h2 className="font-semibold text-gray-700 mb-3">Historial de Pagos</h2>
-                <DataTable data={statement.payments || []} columns={paymentColumns} />
+                <DataTable data={sortedPayments} columns={paymentColumns} />
               </div>
             </>
           )}
