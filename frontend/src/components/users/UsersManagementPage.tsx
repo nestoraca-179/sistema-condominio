@@ -28,6 +28,13 @@ const ROLE_LABELS: Record<Role, string> = {
   resident: 'Residente',
 };
 
+const ROLE_BADGE_CLASSES: Record<Role, string> = {
+  superadmin: 'badge-red',
+  admin: 'badge-blue',
+  accountant: 'badge-yellow',
+  resident: 'badge-green',
+};
+
 interface UsersManagementPageProps {
   title: string;
   allowedRoles: Role[];
@@ -65,13 +72,23 @@ export function UsersManagementPage({
           usersApi.getAll(condominiumId),
           condominiumsApi.getAll(),
         ]);
-        setUsers(usersResponse.data.filter((user) => allowedRoles.includes(user.role)));
+        const filteredUsers = usersResponse.data
+          .filter((user) => allowedRoles.includes(user.role))
+          .sort((left, right) =>
+            left.full_name.localeCompare(right.full_name, 'es', { sensitivity: 'base' }),
+          );
+        setUsers(filteredUsers);
         setCondominiums(condominiumsResponse.data);
         return;
       }
 
       const usersResponse = await usersApi.getAll(condominiumId);
-      setUsers(usersResponse.data.filter((user) => allowedRoles.includes(user.role)));
+      const filteredUsers = usersResponse.data
+        .filter((user) => allowedRoles.includes(user.role))
+        .sort((left, right) =>
+          left.full_name.localeCompare(right.full_name, 'es', { sensitivity: 'base' }),
+        );
+      setUsers(filteredUsers);
     } finally {
       setLoading(false);
     }
@@ -158,7 +175,7 @@ export function UsersManagementPage({
     {
       key: 'role',
       label: 'Rol',
-      render: (user: User) => <span className="badge-blue">{ROLE_LABELS[user.role]}</span>,
+      render: (user: User) => <span className={ROLE_BADGE_CLASSES[user.role]}>{ROLE_LABELS[user.role]}</span>,
     },
     {
       key: 'is_active',

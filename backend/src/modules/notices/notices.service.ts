@@ -35,6 +35,95 @@ export class NoticesService {
     return ids;
   }
 
+  private async getDescendantBuildingIds(condominiumId: string, buildingId: string) {
+    const buildings = await this.buildingRepo.find({
+      where: { condominium_id: condominiumId },
+    });
+
+    const childrenByParentId = new Map<string, string[]>();
+    for (const building of buildings) {
+      if (!building.parent_id) {
+        continue;
+      }
+
+      const siblings = childrenByParentId.get(building.parent_id) ?? [];
+      siblings.push(building.id);
+      childrenByParentId.set(building.parent_id, siblings);
+    }
+
+    const ids = new Set<string>([buildingId]);
+    const queue = [buildingId];
+
+    while (queue.length > 0) {
+      const currentId = queue.shift();
+      if (!currentId) {
+        continue;
+      }
+
+      for (const childId of childrenByParentId.get(currentId) ?? []) {
+        if (ids.has(childId)) {
+          continue;
+        }
+
+        ids.add(childId);
+        queue.push(childId);
+      }
+    }
+
+    return [...ids];
+  }
+
+  private async getEmailsForUnits(unitIds: string[]) {
+    if (unitIds.length === 0) {
+      return [];
+    }
+
+    const units = await this.unitRepo.find({
+      where: unitIds.map(id => ({ id })),
+      relations: ['owner'],
+    });
+
+    return [...new Set(
+      units
+        .map(unit => unit.owner?.email?.trim())
+        .filter((email): email is string => !!email),
+    )];
+  }
+
+  private async resolveNoticeRecipients(dto: CreateNoticeDto) {
+    if (dto.target_type === NoticeTargetType.UNIT) {
+      if (!dto.target_id) {
+        return [];
+      }
+
+      return this.getEmailsForUnits([dto.target_id]);
+    }
+
+    if (dto.target_type === NoticeTargetType.ALL) {
+      const units = await this.unitRepo
+        .createQueryBuilder('unit')
+        .innerJoin('unit.building', 'building')
+        .where('building.condominium_id = :condominiumId', { condominiumId: dto.condominium_id })
+        .select('unit.id', 'id')
+        .getRawMany<{ id: string }>();
+
+      return this.getEmailsForUnits(units.map(unit => unit.id));
+    }
+
+    if (!dto.target_id) {
+      return [];
+    }
+
+    const buildingIds = await this.getDescendantBuildingIds(dto.condominium_id, dto.target_id);
+
+    const units = await this.unitRepo.find({
+      where: buildingIds.map(buildingId => ({ building_id: buildingId })),
+      select: ['id'],
+    });
+
+    return this.getEmailsForUnits(units.map(unit => unit.id));
+  }
+
   private async getVisibleNotices(condominiumId: string, user: { id: string; role: Role }) {
     const notices = await this.noticeRepo.find({
       where: { condominium_id: condominiumId },
@@ -161,8 +250,22 @@ export class NoticesService {
     });
     const saved = await this.noticeRepo.save(notice);
 
-    if (dto.send_by_email && recipients && recipients.length > 0) {
-      await this.sendEmailNotifications(saved.id, saved.title, saved.content, recipients);
+    if (dto.send_by_email) {
+      const resolvedRecipients = recipients && recipients.length > 0
+        ? recipients
+        : await this.resolveNoticeRecipients(dto);
+
+      const uniqueRecipients = [...new Set(
+        resolvedRecipients
+          .map(email => email.trim())
+          .filter(email => email.length > 0),
+      )];
+
+      if (uniqueRecipients.length === 0) {
+        this.logger.warn(`Comunicado ${saved.id} marcado para envio por correo sin destinatarios resolubles`);
+      } else {
+        await this.sendEmailNotifications(saved.id, saved.title, saved.content, uniqueRecipients);
+      }
     }
     return saved;
   }
