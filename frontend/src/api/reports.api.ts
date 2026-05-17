@@ -14,4 +14,10 @@ export const dashboardApi = {
 
   getAdminSummary: (condominiumId: string) =>
     api.get('/dashboard/admin-summary', { params: { condominiumId } }),
+
+  getAdminDashboard: (condominiumId: string) =>
+    api.get('/dashboard/admin-dashboard', { params: { condominiumId } }),
+
+  getAccountantDashboard: (condominiumId: string) =>
+    api.get('/dashboard/accountant-dashboard', { params: { condominiumId } }),
 };
